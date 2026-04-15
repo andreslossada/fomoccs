@@ -8,7 +8,9 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 : "${PROJECT_ID:=momaverse}"
 : "${DOCKER_REPO:=us-central1-docker.pkg.dev/momaverse/momaverse-docker}"
 : "${BACKEND_SERVICE:=momaverse-backend}"
+: "${BACKEND_WORKER_SERVICE:=momaverse-backend-worker}"
 : "${REGION:=us-central1}"
+: "${REDIS_URL:?REDIS_URL must be set — backend worker consumes Celery tasks from this broker}"
 
 BACKEND_DIR="$PROJECT_ROOT/backend"
 
@@ -57,3 +59,23 @@ SERVICE_URL=$(gcloud run services describe "${BACKEND_SERVICE}" \
   --format='value(status.url)')
 echo "=== Backend deployed: ${SERVICE_URL} ==="
 echo "  Rollback: gcloud run services update-traffic ${BACKEND_SERVICE} --to-revisions=${PREV_REVISION}=100 --region=${REGION} --project=${PROJECT_ID}"
+
+echo ""
+echo "=== Deploying Backend Celery Worker ==="
+gcloud run deploy "${BACKEND_WORKER_SERVICE}" \
+  --image="${IMAGE}" \
+  --region="${REGION}" \
+  --project="${PROJECT_ID}" \
+  --command="celery" \
+  --args="-A,api.celery_app,worker,--loglevel=info,--concurrency=4" \
+  --set-env-vars="REDIS_URL=${REDIS_URL}" \
+  --no-cpu-throttling \
+  --min-instances=1
+
+echo ""
+WORKER_URL=$(gcloud run services describe "${BACKEND_WORKER_SERVICE}" \
+  --region="${REGION}" \
+  --project="${PROJECT_ID}" \
+  --format='value(status.url)')
+echo "=== Worker deployed: ${WORKER_URL} ==="
+echo "  Rollback: gcloud run deploy ${BACKEND_WORKER_SERVICE} --image=${IMAGE} --region=${REGION} --project=${PROJECT_ID} (re-deploy previous SHA)"

@@ -97,6 +97,40 @@ git checkout <previous-sha>
 ./deploy/deploy.sh --only frontend
 ```
 
+## Celery Worker
+
+The pipeline and backend are connected through Redis as a Celery broker:
+
+```
+Pipeline Cloud Run Job (momaverse-pipeline)
+  → publishes backend.process_crawl_job tasks to Redis via REDIS_URL
+  → Backend worker Cloud Run Service (momaverse-backend-worker)
+      consumes tasks using api.celery_app
+```
+
+The backend worker runs the same Docker image as the API but overrides the entrypoint to run Celery instead of Uvicorn. It uses `--no-cpu-throttling` and `--min-instances=1` so it stays warm and can process tasks without cold-start delays.
+
+### Required before deploying
+
+`REDIS_URL` must be set in your shell (or CI environment) before running any deploy script:
+
+```bash
+export REDIS_URL="redis://<host>:<port>/0"
+./deploy/deploy.sh --only backend
+./deploy/deploy.sh --only pipeline
+```
+
+### Rollback
+
+For the worker, re-deploy the previous image SHA:
+
+```bash
+gcloud run deploy momaverse-backend-worker \
+  --image=<previous-image> \
+  --region=us-central1 \
+  --project=momaverse
+```
+
 ## Environment Variables
 
 These are set by `deploy.sh` and passed to component scripts. Override for standalone use:
@@ -107,5 +141,7 @@ These are set by `deploy.sh` and passed to component scripts. Override for stand
 | `REGION` | `us-central1` | GCP region |
 | `DOCKER_REPO` | `us-central1-docker.pkg.dev/momaverse/momaverse-docker` | Artifact Registry path |
 | `BACKEND_SERVICE` | `momaverse-backend` | Cloud Run service name |
+| `BACKEND_WORKER_SERVICE` | `momaverse-backend-worker` | Cloud Run service name for Celery worker |
 | `PIPELINE_JOB` | `momaverse-pipeline` | Cloud Run job name |
 | `FRONTEND_BUCKET` | `gs://momaverse-frontend` | GCS bucket for frontend |
+| `REDIS_URL` | *(required)* | Redis broker URL for Celery (no default — must be set) |
