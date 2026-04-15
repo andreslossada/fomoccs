@@ -1,10 +1,9 @@
 """
-Database operations for the event processing pipeline.
+Scraper-only DB helpers. No processing/merge operations — those live in backend Celery workers.
 
 Handles all database connections and CRUD operations for:
 - Crawl jobs and results
 - Sources and their crawl status
-- Extracted events (raw extracted data)
 """
 
 import json
@@ -320,11 +319,10 @@ def save_crawl_summary(cursor, crawl_job_id, tracker):
 
 def get_incomplete_crawl_results(cursor):
     """
-    Get crawl results that need reprocessing.
+    Get crawl results that need extraction (retry support).
 
     Returns results that are:
     - In 'crawled' status (need extraction)
-    - In 'extracted' status (need processing)
     - In 'failed' status but have crawled_content (extraction failed, can retry)
 
     Returns results from any crawl job, not just today's.
@@ -335,7 +333,6 @@ def get_incomplete_crawl_results(cursor):
                CASE
                    WHEN cr.status = 'failed' AND cnt.crawled_content IS NOT NULL
                         AND cnt.extracted_content IS NULL THEN 'crawled'
-                   WHEN cr.status = 'failed' AND cnt.extracted_content IS NOT NULL THEN 'extracted'
                    ELSE cr.status
                END as effective_status
         FROM crawl_results cr
@@ -346,7 +343,7 @@ def get_incomplete_crawl_results(cursor):
         WHERE s.disabled = FALSE
           AND s.deleted_at IS NULL
           AND (
-              cr.status IN ('crawled', 'extracted')
+              cr.status = 'crawled'
               OR (cr.status = 'failed' AND cnt.crawled_content IS NOT NULL)
           )
         ORDER BY cr.status, cj.started_at DESC
@@ -442,216 +439,3 @@ def get_existing_upcoming_events(cursor, source_id):
         events.append(event)
 
     return events
-
-
-def archive_outdated_events(cursor, connection, source_id):
-    """
-    Archive events that are no longer found in recent crawls from ANY of their sources.
-
-    An event is archived only if:
-    - For EVERY source that has ever referenced this event (via event_sources),
-      the most recent crawl from that source does NOT include this event
-    - At least one of those sources has been successfully crawled
-    - For events with future occurrences: a 14-day grace period applies
-
-    Args:
-        cursor: Database cursor
-        connection: Database connection
-        source_id: ID of the source that was just crawled
-
-    Returns:
-        Number of events archived
-    """
-    archive_where = """
-        e.status = 'active'
-          AND e.deleted_at IS NULL
-          AND EXISTS (
-              SELECT 1
-              FROM event_sources es
-              JOIN extracted_events ee ON es.extracted_event_id = ee.id
-              JOIN crawl_results cr ON ee.crawl_result_id = cr.id
-              WHERE es.event_id = e.id
-                AND cr.source_id = %s
-          )
-          AND NOT EXISTS (
-              SELECT 1
-              FROM event_sources es
-              JOIN extracted_events ee ON es.extracted_event_id = ee.id
-              JOIN crawl_results cr ON ee.crawl_result_id = cr.id
-              WHERE es.event_id = e.id
-                AND cr.processed_at = (
-                    SELECT MAX(cr2.processed_at)
-                    FROM crawl_results cr2
-                    WHERE cr2.source_id = cr.source_id
-                      AND cr2.status IN ('processed', 'extracted')
-                      AND cr2.processed_at IS NOT NULL
-                )
-          )
-          AND EXISTS (
-              SELECT 1
-              FROM event_sources es
-              JOIN extracted_events ee ON es.extracted_event_id = ee.id
-              JOIN crawl_results cr ON ee.crawl_result_id = cr.id
-              WHERE es.event_id = e.id
-                AND cr.status IN ('processed', 'extracted')
-                AND cr.processed_at IS NOT NULL
-          )
-          AND (
-              NOT EXISTS (
-                  SELECT 1 FROM event_occurrences eo
-                  WHERE eo.event_id = e.id AND eo.start_date >= CURRENT_DATE
-              )
-              OR
-              NOT EXISTS (
-                  SELECT 1
-                  FROM event_sources es
-                  JOIN extracted_events ee ON es.extracted_event_id = ee.id
-                  JOIN crawl_results cr ON ee.crawl_result_id = cr.id
-                  WHERE es.event_id = e.id
-                    AND cr.processed_at >= NOW() - INTERVAL '14 days'
-              )
-          )
-    """
-
-    cursor.execute(
-        f"""
-        SELECT e.id, e.name,
-               (SELECT MIN(eo.start_date)
-                FROM event_occurrences eo
-                WHERE eo.event_id = e.id
-                  AND eo.start_date >= CURRENT_DATE) as next_occurrence
-        FROM events e
-        WHERE {archive_where}
-    """,
-        (source_id,),
-    )
-
-    events_to_archive = cursor.fetchall()
-    upcoming_events = [
-        (event_id, name, next_occ)
-        for event_id, name, next_occ in events_to_archive
-        if next_occ
-    ]
-
-    cursor.execute(
-        f"""
-        UPDATE events e
-        SET status = 'archived'
-        WHERE {archive_where}
-    """,
-        (source_id,),
-    )
-
-    archived_count = cursor.rowcount
-    connection.commit()
-
-    return archived_count, upcoming_events
-
-
-def get_extracted_content(cursor, crawl_result_id):
-    """Get extracted content and source_id for a crawl result."""
-    cursor.execute(
-        """SELECT cnt.extracted_content, cr.source_id
-           FROM crawl_results cr
-           LEFT JOIN crawl_contents cnt ON cnt.crawl_result_id = cr.id
-           WHERE cr.id = %s""",
-        (crawl_result_id,),
-    )
-    result = cursor.fetchone()
-    return (result[0], result[1]) if result else (None, None)
-
-
-def get_all_locations(cursor):
-    """
-    Get all locations with their alternate names for location matching.
-
-    Returns a list of dicts with: id, name, short_name, address, lat, lng, emoji, alternate_names
-    """
-    cursor.execute("""
-        SELECT id, name, short_name, address, lat, lng, emoji
-        FROM locations
-        WHERE lat IS NOT NULL AND lng IS NOT NULL
-          AND deleted_at IS NULL
-    """)
-
-    locations = {}
-    for row in cursor.fetchall():
-        locations[row[0]] = {
-            "id": row[0],
-            "name": row[1],
-            "short_name": row[2],
-            "address": row[3],
-            "lat": float(row[4]) if row[4] else None,
-            "lng": float(row[5]) if row[5] else None,
-            "emoji": row[6],
-            "alternate_names": [],
-        }
-
-    cursor.execute("""
-        SELECT location_id, alternate_name
-        FROM location_alternate_names
-    """)
-
-    for row in cursor.fetchall():
-        location_id, alternate_name = row
-        if location_id in locations:
-            locations[location_id]["alternate_names"].append(alternate_name)
-
-    return list(locations.values())
-
-
-def get_tag_rules(cursor):
-    """
-    Get tag processing rules from the database.
-
-    Returns a dict with:
-    - 'rewrite': dict mapping pattern -> replacement
-    - 'exclude': list of patterns to filter out
-    - 'remove': list of patterns that indicate event should be skipped
-    """
-    rules = {"rewrite": {}, "exclude": [], "remove": []}
-
-    cursor.execute("""
-        SELECT rule_type, pattern, replacement
-        FROM tag_rules
-        ORDER BY rule_type, pattern
-    """)
-
-    for row in cursor.fetchall():
-        rule_type, pattern, replacement = row
-        if rule_type == "rewrite":
-            rules["rewrite"][pattern] = replacement
-        elif rule_type == "exclude":
-            rules["exclude"].append(pattern)
-        elif rule_type == "remove":
-            rules["remove"].append(pattern)
-
-    return rules
-
-
-def get_source_default_tags(cursor):
-    """
-    Get all sources with their URLs and default tags.
-
-    Returns a dict mapping URL (lowercase, no trailing slash) to list of default tags.
-    Tags come from crawl_configs.default_tags (ARRAY column).
-    """
-    cursor.execute("""
-        SELECT su.url, cc.default_tags
-        FROM source_urls su
-        JOIN sources s ON su.source_id = s.id
-        JOIN crawl_configs cc ON cc.source_id = s.id
-        WHERE s.disabled = FALSE
-          AND s.deleted_at IS NULL
-          AND su.deleted_at IS NULL
-        ORDER BY su.source_id, su.sort_order
-    """)
-
-    tags_map = {}
-    for row in cursor.fetchall():
-        url, default_tags = row
-        normalized_url = url.rstrip("/").lower()
-        if normalized_url not in tags_map:
-            tags_map[normalized_url] = list(default_tags) if default_tags else []
-
-    return tags_map
