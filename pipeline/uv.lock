@@ -1310,7 +1310,6 @@ dependencies = [
     { name = "psycopg2-binary" },
     { name = "pydantic" },
     { name = "python-dotenv" },
-    { name = "regex" },
 ]
 
 [package.dev-dependencies]
@@ -1328,7 +1327,6 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
-    { name = "regex", specifier = ">=2026.2.28" },
 ]
 
 [package.metadata.requires-dev]
