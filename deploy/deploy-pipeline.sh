@@ -9,6 +9,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 : "${DOCKER_REPO:=us-central1-docker.pkg.dev/momaverse/momaverse-docker}"
 : "${PIPELINE_JOB:=momaverse-pipeline}"
 : "${REGION:=us-central1}"
+: "${REDIS_URL:?REDIS_URL must be set — pipeline publishes Celery tasks to this broker}"
 
 PIPELINE_DIR="$PROJECT_ROOT/pipeline"
 
@@ -47,8 +48,10 @@ echo "=== Updating Cloud Run Job ==="
 gcloud run jobs update "${PIPELINE_JOB}" \
   --image="${IMAGE}" \
   --region="${REGION}" \
-  --project="${PROJECT_ID}"
+  --project="${PROJECT_ID}" \
+  --update-env-vars="REDIS_URL=${REDIS_URL}"
 
 echo ""
 echo "=== Pipeline deployment complete ==="
+echo "  REDIS_URL: ${REDIS_URL%%:*}://**** (redacted)"
 echo "  Rollback: gcloud run jobs update ${PIPELINE_JOB} --image=${PREV_IMAGE} --region=${REGION} --project=${PROJECT_ID}"

@@ -4,13 +4,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# === Topology ===
+# scraper (Cloud Run Job: momaverse-pipeline)
+#   → publishes backend.process_crawl_job tasks to Redis via REDIS_URL
+#   → backend worker (Cloud Run Service: momaverse-backend-worker) consumes via api.celery_app
+#   → backend API (Cloud Run Service: momaverse-backend) serves HTTP traffic
+
 # === Shared Constants ===
 export PROJECT_ID="momaverse"
 export REGION="us-central1"
 export DOCKER_REPO="us-central1-docker.pkg.dev/momaverse/momaverse-docker"
 export BACKEND_SERVICE="momaverse-backend"
+export BACKEND_WORKER_SERVICE="${BACKEND_WORKER_SERVICE:-momaverse-backend-worker}"
 export PIPELINE_JOB="momaverse-pipeline"
 export FRONTEND_BUCKET="gs://momaverse-frontend"
+
+# === Required Env Vars ===
+: "${REDIS_URL:?REDIS_URL must be set — required by pipeline (publish) and backend worker (consume)}"
+export REDIS_URL
 
 # === Pre-flight Checks ===
 require_cmd() {
