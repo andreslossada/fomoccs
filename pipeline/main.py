@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import asyncio
+import os
 import sys
 from datetime import datetime
 
@@ -28,6 +29,8 @@ import merger
 import processor
 from crawl4ai import AsyncWebCrawler
 from extractor import TokenTracker
+
+USE_CELERY = os.getenv("USE_CELERY", "false").lower() == "true"
 
 
 async def run_pipeline(source_ids=None, limit=None):
@@ -362,6 +365,19 @@ async def run_pipeline(source_ids=None, limit=None):
                 job_tracker.merge(worker_tracker)
 
         print(f"\nExtracted events from {len(extracted_results)} source(s)\n")
+
+        if USE_CELERY:
+            from celery_publisher import publish_process_crawl_job
+
+            if job_tracker.api_calls > 0:
+                db.save_crawl_summary(cursor, crawl_job_id, job_tracker)
+            db.complete_crawl_job(cursor, connection, crawl_job_id)
+            task_id = publish_process_crawl_job(crawl_job_id)
+            print(f"{'=' * 60}")
+            print("CELERY BRIDGE MODE — handoff to backend")
+            print(f"{'=' * 60}")
+            print(f"  crawl_job_id={crawl_job_id} task_id={task_id}")
+            return True
 
         # STEP 4: Process responses
         print(f"{'=' * 60}")
