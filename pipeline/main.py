@@ -1,12 +1,11 @@
 """
 Event Processing Pipeline
 
-Orchestrates the complete event processing workflow:
+Orchestrates the scraping and extraction workflow:
 
 1. Crawl - Query sources table, crawl due sites, store in crawl_results
 2. Extract - Use Gemini AI to extract structured event data
-3. Process - Parse responses, enrich with location data, store in extracted_events
-4. Merge - Deduplicate extracted_events into final events table
+3. Handoff - Publish crawl_job_id to backend Celery task for processing/merging
 
 Usage:
     python main.py                     # Process all sources due for crawling
@@ -17,24 +16,18 @@ Usage:
 
 import argparse
 import asyncio
-import os
 import sys
-from datetime import datetime
 
 import crawler
 import db
 import extractor
-import location_resolver
-import merger
-import processor
+from celery_publisher import publish_process_crawl_job
 from crawl4ai import AsyncWebCrawler
 from extractor import TokenTracker
 
-USE_CELERY = os.getenv("USE_CELERY", "false").lower() == "true"
-
 
 async def run_pipeline(source_ids=None, limit=None):
-    """Execute the complete event processing pipeline.
+    """Execute the scraping and extraction pipeline.
 
     Args:
         source_ids: Optional list of source IDs to process. If None, processes
@@ -63,9 +56,6 @@ async def run_pipeline(source_ids=None, limit=None):
 
         incomplete_results = db.get_incomplete_crawl_results(cursor)
         incomplete_crawled = [r for r in incomplete_results if r["status"] == "crawled"]
-        incomplete_extracted = [
-            r for r in incomplete_results if r["status"] == "extracted"
-        ]
 
         def print_incomplete_status(results, action_needed):
             """Print status summary for a list of incomplete results."""
@@ -89,8 +79,6 @@ async def run_pipeline(source_ids=None, limit=None):
             print(f"Found {len(incomplete_results)} crawl result(s) to process:")
             if incomplete_crawled:
                 print_incomplete_status(incomplete_crawled, "extraction")
-            if incomplete_extracted:
-                print_incomplete_status(incomplete_extracted, "processing")
         else:
             print("No incomplete crawl results found.")
 
@@ -141,7 +129,6 @@ async def run_pipeline(source_ids=None, limit=None):
 
         crawl_results = []
         extracted_results = []
-        resolver_locations_created = 0
 
         # Crawl JSON API sources first (fast, no browser needed)
         if json_api_sources:
@@ -152,18 +139,10 @@ async def run_pipeline(source_ids=None, limit=None):
                     continue
                 cur = conn.cursor()
                 try:
-                    result_id, raw_data = await crawler.crawl_json_api(
+                    result_id, _raw_data = await crawler.crawl_json_api(
                         source, cur, conn, crawl_job_id
                     )
                     if result_id:
-                        # Auto-create missing venues from structured API data
-                        if raw_data and isinstance(raw_data, dict):
-                            created = location_resolver.resolve_locations(
-                                raw_data, source["id"], cur, conn
-                            )
-                            resolver_locations_created += created
-                            if created > 0:
-                                print(f"    - Auto-created {created} new location(s)")
                         # JSON API sources are directly mapped to extracted;
                         # route them past the Gemini extraction queue.
                         extracted_results.append((result_id, source))
@@ -366,118 +345,23 @@ async def run_pipeline(source_ids=None, limit=None):
 
         print(f"\nExtracted events from {len(extracted_results)} source(s)\n")
 
-        if USE_CELERY:
-            from celery_publisher import publish_process_crawl_job
-
-            if job_tracker.api_calls > 0:
-                db.save_crawl_summary(cursor, crawl_job_id, job_tracker)
-            db.complete_crawl_job(cursor, connection, crawl_job_id)
-            task_id = publish_process_crawl_job(crawl_job_id)
-            print(f"{'=' * 60}")
-            print("CELERY BRIDGE MODE — handoff to backend")
-            print(f"{'=' * 60}")
-            print(f"  crawl_job_id={crawl_job_id} task_id={task_id}")
-            return True
-
-        # STEP 4: Process responses
-        print(f"{'=' * 60}")
-        print("STEP 4: Processing Responses")
-        print(f"{'=' * 60}")
-
-        # Refresh connection to see data committed by extract workers
-        cursor.close()
-        connection.close()
-        connection = db.create_connection()
-        if not connection:
-            print("Failed to reconnect to database")
-            return False
-        cursor = connection.cursor()
-
-        total_events = 0
-        total_location_stats = processor.LocationStats()
-        run_date_str = datetime.now().strftime("%Y%m%d")
-
-        # First, process incomplete 'extracted' results from previous runs
-        if incomplete_extracted:
-            print(
-                f"\n  Processing {len(incomplete_extracted)} incomplete 'extracted' result(s)..."
-            )
-            for r in incomplete_extracted:
-                print(f"  Processing {r['name']} (from {r['started_at']})...")
-                original_run_date_str = r["started_at"].strftime("%Y%m%d")
-                event_count, loc_stats = processor.process_events(
-                    cursor,
-                    connection,
-                    r["crawl_result_id"],
-                    r["name"],
-                    original_run_date_str,
-                )
-                total_events += event_count
-                total_location_stats.merge(loc_stats)
-                print(f"    - {event_count} events processed")
-
-        # Then process newly extracted results
-        for crawl_result_id, source in extracted_results:
-            print(f"  Processing {source['name']}...")
-            source_started_at = source.get("started_at")
-            result_run_date_str = (
-                source_started_at.strftime("%Y%m%d")
-                if source_started_at
-                else run_date_str
-            )
-            event_count, loc_stats = processor.process_events(
-                cursor,
-                connection,
-                crawl_result_id,
-                source["name"],
-                result_run_date_str,
-            )
-            total_events += event_count
-            total_location_stats.merge(loc_stats)
-            print(f"    - {event_count} events processed")
-
-        print(f"\nProcessed {total_events} total events\n")
-
-        # Save token usage summary and mark crawl job as completed (single commit)
+        # Save token usage summary, mark crawl job complete, publish to backend
         if job_tracker.api_calls > 0:
             db.save_crawl_summary(cursor, crawl_job_id, job_tracker)
         db.complete_crawl_job(cursor, connection, crawl_job_id)
-
-        # STEP 5: Merge extracted_events into final events table and archive outdated events
-        print(f"{'=' * 60}")
-        print("STEP 5: Merging Extracted Events and Archiving Outdated Events")
-        print(f"{'=' * 60}")
-
-        new_events, merged_events = merger.merge_extracted_events(cursor, connection)
-        print(f"\nMerged events ({new_events} new, {merged_events} merged)\n")
+        task_id = publish_process_crawl_job(crawl_job_id)
 
         print(f"{'=' * 60}")
         print("PIPELINE COMPLETED SUCCESSFULLY")
         print(f"{'=' * 60}\n")
 
-        # Show summary
         print("Summary:")
         print(f"  - Sources crawled: {len(crawl_results) + len(json_api_sources)}")
         if incomplete_crawled:
             print(f"  - Resumed extractions: {len(incomplete_crawled)}")
-        if incomplete_extracted:
-            print(f"  - Resumed processing: {len(incomplete_extracted)}")
         print(f"  - Events extracted: {len(extracted_results)}")
-        print(f"  - Total events processed: {total_events}")
-
-        has_location_activity = (
-            resolver_locations_created > 0 or total_location_stats.created > 0
-        )
-        if has_location_activity:
-            print(f"\n{'=' * 60}")
-            print("LOCATION DISCOVERY")
-            print(f"{'=' * 60}")
-            if resolver_locations_created > 0:
-                print(
-                    f"  From JSON API sources: {resolver_locations_created} (with coordinates)"
-                )
-            if total_location_stats.created > 0:
-                print(total_location_stats.summary())
+        print(f"  - crawl_job_id: {crawl_job_id}")
+        print(f"  - task_id: {task_id}")
 
         if job_tracker.api_calls > 0:
             print(f"\n{'=' * 60}")

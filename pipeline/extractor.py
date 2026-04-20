@@ -23,7 +23,6 @@ import httpx
 import openai
 from dotenv import load_dotenv
 from PIL import Image
-from processor import extract_url_from_content
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -281,6 +280,15 @@ MAX_VISION_IMAGES = 10
 
 # Maximum image dimension (images will be resized if larger)
 MAX_IMAGE_DIMENSION = 1024
+
+
+def extract_url_from_content(content):
+    """Extract URL from first line of content if present."""
+    if content and content.startswith("http"):
+        first_newline = content.find("\n")
+        if first_newline != -1:
+            return content[:first_newline].strip(), content[first_newline + 1 :]
+    return None, content
 
 
 # =============================================================================
