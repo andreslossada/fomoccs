@@ -23,8 +23,6 @@ unfixable = ["F401", "F841"]
 [lint.per-file-ignores]
 # SQLAlchemy models use string forward references resolved at runtime
 "backend/api/models/*.py" = ["F821"]
-# Scripts manipulate sys.path before importing
-"scripts/*.py" = ["E402", "E501"]
 # Pipeline has long prompt strings and is a separate project
 "pipeline/*.py" = ["E501"]
 

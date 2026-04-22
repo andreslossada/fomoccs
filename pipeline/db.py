@@ -176,11 +176,8 @@ def create_crawl_job(cursor, connection):
     return new_id
 
 
-def create_crawl_result(cursor, connection, crawl_job_id, source_id, _filename=None):
-    """Create a new crawl result record.
-
-    _filename is accepted for backward compatibility but ignored (column dropped).
-    """
+def create_crawl_result(cursor, connection, crawl_job_id, source_id):
+    """Create a new crawl result record."""
     cursor.execute(
         """INSERT INTO crawl_results (crawl_job_id, source_id, status, created_at)
            VALUES (%s, %s, 'pending', NOW())
@@ -213,7 +210,6 @@ def update_crawl_result(cursor, connection, crawl_result_id, status, **kwargs):
     timestamp_map = {
         "crawled": "crawled_at",
         "extracted": "extracted_at",
-        "processed": "processed_at",
     }
     if status in timestamp_map:
         updates.append(f"{timestamp_map[status]} = NOW()")
@@ -260,16 +256,6 @@ def update_crawl_result_extracted(cursor, connection, crawl_result_id, content):
     update_crawl_result(
         cursor, connection, crawl_result_id, "extracted", content=content
     )
-
-
-def update_crawl_result_processed(
-    cursor, connection, crawl_result_id, _event_count=None
-):
-    """Update crawl result as processed.
-
-    _event_count is accepted for backward compatibility but ignored (column dropped).
-    """
-    update_crawl_result(cursor, connection, crawl_result_id, "processed")
 
 
 def update_crawl_result_failed(cursor, connection, crawl_result_id, error_message):
@@ -361,10 +347,6 @@ def get_incomplete_crawl_results(cursor):
                 "name": row[4],
                 "notes": row[5],
                 "started_at": row[6],
-                # Backward-compatible aliases (callers updated in later phases)
-                "website_id": row[2],
-                "crawl_run_id": row[3],
-                "run_date": row[6],
             }
         )
 

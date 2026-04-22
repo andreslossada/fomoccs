@@ -14,7 +14,7 @@ labels: ["track:feature"]
 <!-- REQUIRED: Describe the feature. Include:
 - User-facing behavior (what the user sees/does)
 - Technical approach (how it works under the hood)
-- Components affected (frontend, backend, pipeline, database)
+- Components affected (frontend, backend, pipeline)
 -->
 
 ### Component Breakdown
@@ -22,8 +22,7 @@ labels: ["track:feature"]
 - [ ] Frontend (src/)
 - [ ] Backend API (backend/api/)
 - [ ] Pipeline (pipeline/)
-- [ ] Database schema (database/)
-- [ ] Mobile (mobile/)
+- [ ] Database schema (backend/alembic/)
 
 ### API Design
 <!-- If this involves API changes, define them -->

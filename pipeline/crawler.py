@@ -233,7 +233,7 @@ def map_json_api_to_extracted(events_dict):
     return {"events": mapped_events}
 
 
-def flatten_events_to_markdown(events_dict, fields_include=None):
+def flatten_events_to_markdown(events_dict):
     """Convert filtered JSON events dict to markdown for Gemini extraction.
 
     For each event produces:
@@ -382,8 +382,7 @@ async def crawl_json_api(source, cursor, connection, crawl_job_id):
         print(f"    - Events after date filter ({date_window_days}d): {filtered_count}")
 
         # Flatten to markdown (kept for audit/debugging)
-        fields_include = config.get("fields_include")
-        markdown = flatten_events_to_markdown(filtered, fields_include)
+        markdown = flatten_events_to_markdown(filtered)
 
         if not markdown.strip():
             db.update_crawl_result_failed(
@@ -448,15 +447,6 @@ def resolve_url_templates(url):
     for placeholder, value in replacements.items():
         url = url.replace(placeholder, value)
     return url
-
-
-def create_safe_filename(name, extension=None):
-    """Generate a safe filesystem name from a string."""
-    safe = "".join(c for c in name if c.isalnum() or c in (" ", "_")).rstrip()
-    safe = safe.replace(" ", "_").lower()
-    if extension:
-        safe += extension
-    return safe
 
 
 async def crawl_source(crawler, source, cursor, connection, crawl_job_id):

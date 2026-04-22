@@ -1,141 +1,78 @@
-# Event Processing Pipeline
+# Scraper Pipeline
 
-Scripts for crawling event websites, extracting structured data, and exporting to JSON.
+Crawl event sources, extract structured event data, hand off to backend via Celery.
+
+Post-extract processing (dedup, merge, location resolution, geocoding) lives in the backend. This pipeline only crawls + extracts, then publishes a `PROCESS_CRAWL_JOB` task.
 
 ## Pipeline Overview
 
-The `main.py` script orchestrates the following steps:
+`main.py` orchestrates:
 
-1. **Crawl** - Query `websites` table for sites due for crawling, store content in `crawl_results`
-2. **Extract** - Use Gemini AI to extract structured event data from crawled content
-3. **Process** - Parse extracted events, enrich with location data, store in `crawl_events`
-4. **Merge** - Deduplicate crawl_events into final `events` table
+1. **Crawl** — query `sources` table for sites due for crawling, store content in `crawl_results` / `crawl_contents`.
+2. **Extract** — call OpenRouter (Gemini) to extract structured events from crawled content.
+3. **Handoff** — mark `crawl_jobs` complete and publish a Celery task with `crawl_job_id` for the backend worker.
 
 ## Module Structure
 
 ```
 pipeline/
-├── main.py              # Main orchestrator
-├── db.py                # Database connection and operations
-├── crawler.py           # Web crawling with Crawl4AI
-├── extractor.py         # Gemini AI event extraction
-├── processor.py         # Markdown parsing, text utilities, and enrichment
-├── merger.py            # Event deduplication
-├── exporter.py          # JSON export
+├── main.py              # Orchestrator
+├── db.py                # Scraper-only DB helpers (psycopg2)
+├── crawler.py           # Crawl4AI + JSON API crawler
+├── extractor.py         # OpenRouter/Gemini event extraction
+├── celery_publisher.py  # Thin Celery publisher (Redis broker)
+├── task_names.py        # Shared task-name constants (mirrors backend)
 └── tests/
-    └── test_processor.py
+    ├── test_crawler.py
+    ├── test_celery_publisher.py
+    └── test_main_celery_bridge.py
 ```
 
-## Database Schema
+## Key Tables
 
 ```
-websites              - Sites to crawl
-crawl_runs            - Pipeline execution records
-crawl_results         - Crawled/extracted content per run
-crawl_events          - Raw extracted events
-crawl_event_occurrences
-crawl_event_tags
-
-events                - Final deduplicated events (source of truth)
-event_occurrences
-event_urls
-event_tags
-event_sources         - Links events to contributing crawl_events
-
-locations             - Venue database
-tags                  - Normalized tag names
-tag_rules             - Tag rewrite/exclude/remove rules
+sources               - Event sources to crawl
+crawl_configs         - Per-source crawl settings
+source_urls           - URLs per source (with per-URL js_code)
+crawl_jobs            - Pipeline run records
+crawl_results         - Status + timestamps per (job, source)
+crawl_contents        - crawled_content + extracted_content (1:1 with crawl_results)
+crawl_summaries       - Token usage per crawl job
 ```
+
+Post-handoff tables (`events`, `event_occurrences`, `locations`, etc.) are owned by the backend.
 
 ## Setup
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.12+
 - PostgreSQL
-- Required packages:
-  - `crawl4ai`
-  - `google-generativeai`
-  - `psycopg2-binary`
-  - `python-dotenv`
-  - `regex`
+- Redis (broker for Celery handoff)
+
+Deps managed with `uv` — see `pyproject.toml`.
 
 ### Configuration
 
-Create a `.env` file:
+`.env` variables:
 
 ```env
-FOMO_ENV=local
-
-# Gemini AI
-GEMINI_API_KEY="your-api-key"
-GEMINI_MODEL="gemini-3-flash-preview"
-GEMINI_TIMEOUT=120
+FOMO_ENV=local                         # or 'production'
+OPENROUTER_CRAWLER_API_KEY=...
+OPENROUTER_MODEL=google/gemini-2.5-flash
+EXTRACTION_TIMEOUT=120
+REDIS_URL=redis://localhost:6379/0
 ```
 
-Database credentials are in `db.py` based on `FOMO_ENV`.
+Production DB creds read from `PROD_DB_HOST`, `PROD_DB_NAME`, `PROD_DB_USER`, `PROD_DB_PASS`.
 
 ## Usage
 
-### Run Complete Pipeline
-
 ```bash
-python main.py
+python main.py                     # all sources due
+python main.py --ids 941           # specific source(s)
+python main.py --ids 941,942       # multiple
+python main.py --limit 5           # cap
 ```
 
-### Run Individual Modules
-
-```python
-import db
-import exporter
-
-connection = db.create_connection()
-cursor = connection.cursor()
-
-# Export events to JSON
-exporter.export_events(cursor)
-
-cursor.close()
-connection.close()
-```
-
-## Data Flow
-
-```
-websites table
-     ↓
-[Crawl] → crawl_results.crawled_content
-     ↓
-[Extract] → crawl_results.extracted_content
-     ↓
-[Process] → crawl_events + occurrences + tags
-     ↓
-[Merge] → events + occurrences + urls + tags + sources
-```
-
-## Deduplication
-
-Events are deduplicated by:
-- **Location**: Same lat/lng (rounded to 5 decimals)
-- **Date**: Same first occurrence start date
-- **Name**: Similar after normalization (punctuation/case removed)
-
-Duplicates are merged: URLs combined, shorter name kept, sources tracked.
-
-## Output Files
-
-- `events.init.json` - Core NYC area, 7-day window
-- `events.full.json` - Extended area, 90-day window
-- `locations.init.json` - Locations for init events
-- `locations.full.json` - Locations for full events
-
-## Troubleshooting
-
-### Database Issues
-- Check MariaDB is running
-- Verify credentials in `db.py`
-
-### Extraction Issues
-- Ensure `GEMINI_API_KEY` is set
-- Check API quota/limits
-
+On completion, publishes `PROCESS_CRAWL_JOB` to Redis; backend Celery worker picks it up and handles parsing, dedup, merging, geocoding.
