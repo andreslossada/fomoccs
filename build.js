@@ -9,7 +9,7 @@ const FLATPICKR_JS = path.join(__dirname, 'node_modules', 'flatpickr', 'dist', '
 const FLATPICKR_CSS = path.join(__dirname, 'node_modules', 'flatpickr', 'dist', 'flatpickr.css');
 
 // Directories to include in dist/ (everything the server needs)
-const ASSET_DIRS = ['data', 'images', 'fonts', 'api', 'admin'];
+const ASSET_DIRS = ['data', 'images', 'fonts'];
 
 function copyDirSync(src, dest) {
     fs.mkdirSync(dest, { recursive: true });
@@ -132,9 +132,8 @@ async function build(isDev) {
 
     fs.writeFileSync(path.join(DIST, 'index.html'), html);
 
-    // Copy about.html and .htaccess
+    // Copy about.html
     fs.copyFileSync(path.join(SRC, 'about.html'), path.join(DIST, 'about.html'));
-    fs.copyFileSync(path.join(SRC, '.htaccess'), path.join(DIST, '.htaccess'));
 
     // Copy asset directories into dist/
     // Dev: symlinks (fast, live updates); Prod: full copies (self-contained)

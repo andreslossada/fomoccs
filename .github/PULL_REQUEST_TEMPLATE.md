@@ -7,10 +7,10 @@ Resolves #
 ## Track
 
 <!-- Check one -->
-- [ ] Migration (PHP → Python/FastAPI)
-- [ ] CI/CD
 - [ ] Feature
 - [ ] Bug fix
+- [ ] CI/CD
+- [ ] Refactor / cleanup
 
 ## Changes Made
 
@@ -70,16 +70,6 @@ Expected output:
 - [ ] Empty input: ...
 - [ ] Invalid input: ...
 - [ ] Large payload: ...
-
-## Migration Checklist
-
-<!-- Only for track:migration PRs. Delete this section otherwise. -->
-- [ ] PHP endpoint identified: `src/api/...`
-- [ ] FastAPI endpoint matches PHP response format
-- [ ] Both endpoints return identical data for same inputs
-- [ ] Pydantic schemas match database types
-- [ ] SQLAlchemy queries produce same results as PHP queries
-- [ ] No new database migrations needed (using existing schema)
 
 ## CI/CD Checklist
 
