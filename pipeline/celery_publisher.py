@@ -27,6 +27,9 @@ def get_celery_app() -> Celery:
         )
     app = Celery("pipeline-publisher", broker=redis_url)
     app.conf.task_always_eager = False
+
+    app.conf.task_default_queue = "default"
+
     return app
 
 
