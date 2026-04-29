@@ -20,6 +20,8 @@ pipeline/
 ├── db.py                # Scraper-only DB helpers (psycopg2)
 ├── crawler.py           # Crawl4AI + JSON API crawler
 ├── extractor.py         # OpenRouter/Gemini event extraction
+├── llm_models.py        # Centralized model registry + pricing
+├── discovery/           # Source-discovery query generator (CLI)
 ├── celery_publisher.py  # Thin Celery publisher (Redis broker)
 ├── task_names.py        # Shared task-name constants (mirrors backend)
 └── tests/
@@ -59,9 +61,13 @@ Deps managed with `uv` — see `pyproject.toml`.
 ```env
 FOMO_ENV=local                         # or 'production'
 OPENROUTER_CRAWLER_API_KEY=...
-OPENROUTER_MODEL=google/gemini-2.5-flash
+OPENROUTER_MODEL=google/gemini-2.5-flash         # extraction model
+OPENROUTER_DISCOVERY_MODEL=anthropic/claude-sonnet-4.6  # discovery query gen
 EXTRACTION_TIMEOUT=120
+DISCOVERY_TIMEOUT=60
 REDIS_URL=redis://localhost:6379/0
+MOMAVERSE_API_URL=https://...                    # used by discovery for dedupe
+MOMAVERSE_API_TOKEN=...
 ```
 
 Production DB creds read from `PROD_DB_HOST`, `PROD_DB_NAME`, `PROD_DB_USER`, `PROD_DB_PASS`.
@@ -76,3 +82,16 @@ python main.py --limit 5           # cap
 ```
 
 On completion, publishes `PROCESS_CRAWL_JOB` to Redis; backend Celery worker picks it up and handles parsing, dedup, merging, geocoding.
+
+## Source discovery (experimental)
+
+`discovery/` generates Spanish search queries that surface new event sources. Stage one only — emits a JSON dump for human review; no Firecrawl, no DB writes.
+
+```bash
+python -m discovery                          # default: Buenos Aires, n=15
+python -m discovery --n 20
+python -m discovery --model openai/gpt-4o    # override
+python -m discovery --dry-run                # skip existing-domain dedupe
+```
+
+Output goes to `out/discovery_queries_<timestamp>.json` (gitignored). When `MOMAVERSE_API_URL` and `MOMAVERSE_API_TOKEN` are set, existing source domains are pulled from the API and excluded from query generation.

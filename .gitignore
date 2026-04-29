@@ -158,3 +158,6 @@ mobile/android/**/lint-results*
 /.agents
 /.planning
 skills-lock.json
+
+# Discovery output dumps
+out/
