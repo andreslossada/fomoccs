@@ -512,14 +512,19 @@ async def _crawl_all_urls(
     urls: list[dict[str, Any] | str],
     config_kwargs: dict[str, Any],
     crawler_config: CrawlerRunConfig,
-    chunks: list[str],
+    cursor: PgCursor,
+    connection: PgConnection,
+    crawl_result_id: int,
 ) -> str:
-    """Crawl all URLs for a source and return combined markdown content.
+    """Crawl all URLs for a source, persisting each result to the database.
 
-    Completed URL content is appended to ``chunks`` as each URL finishes,
-    so callers can recover partial results if the coroutine is cancelled
-    (e.g. by ``asyncio.wait_for`` on timeout).
+    Each URL gets its own ``crawl_url_results`` row so that partial progress
+    survives timeouts and individual failures are tracked independently.
+
+    Returns the combined markdown from all successful URLs.
     """
+    combined_parts: list[str] = []
+
     for url_data in urls:
         # Handle both dict format (with js_code) and string format (legacy)
         if isinstance(url_data, dict):
@@ -528,6 +533,11 @@ async def _crawl_all_urls(
         else:
             url = resolve_url_templates(url_data)
             url_js_code = None
+
+        # Create per-URL tracking record
+        url_result_id = db.create_crawl_url_result(
+            cursor, connection, crawl_result_id, url
+        )
 
         # Use per-URL js_code if set, otherwise use source-level config
         if url_js_code:
@@ -539,59 +549,70 @@ async def _crawl_all_urls(
         url_content = ""
         page_count = 0
 
-        arun_result = await crawler.arun(url=url, config=url_config)
-        print(
-            f"    - arun returned: type={type(arun_result).__name__}, len={len(arun_result) if hasattr(arun_result, '__len__') else 'N/A'}"
-        )
-        for result in arun_result:
-            page_count += 1
-            # Debug: show what we received
-            html_len = len(result.html) if result and result.html else 0
-            has_error = bool(result.error_message) if result else False
+        try:
+            arun_result = await crawler.arun(url=url, config=url_config)
             print(
-                f"      Page {page_count}: html={html_len}, success={result.success if result else False}, error={result.error_message if has_error else 'none'}"
+                f"    - arun returned: type={type(arun_result).__name__}, len={len(arun_result) if hasattr(arun_result, '__len__') else 'N/A'}"
             )
-
-            # Debug: warn if HTML has no body (crawl4ai bug on some sites)
-            if result and result.html and html_len > 1000:
-                raw_len = (
-                    len(result.markdown.raw_markdown)
-                    if result.markdown and result.markdown.raw_markdown
-                    else 0
+            for result in arun_result:
+                page_count += 1
+                html_len = len(result.html) if result and result.html else 0
+                has_error = bool(result.error_message) if result else False
+                print(
+                    f"      Page {page_count}: html={html_len}, success={result.success if result else False}, error={result.error_message if has_error else 'none'}"
                 )
-                has_body = "<body" in result.html.lower()
-                if not has_body:
+
+                if result and result.html and html_len > 1000:
+                    raw_len = (
+                        len(result.markdown.raw_markdown)
+                        if result.markdown and result.markdown.raw_markdown
+                        else 0
+                    )
+                    has_body = "<body" in result.html.lower()
+                    if not has_body:
+                        print(
+                            f"      WARNING: HTML missing body tag (html={html_len}, raw_md={raw_len}) - possible crawl4ai bug"
+                        )
+
+                if result and result.markdown:
+                    fit_len = (
+                        len(result.markdown.fit_markdown)
+                        if result.markdown.fit_markdown
+                        else 0
+                    )
+                    raw_len = (
+                        len(result.markdown.raw_markdown)
+                        if result.markdown.raw_markdown
+                        else 0
+                    )
+                    content = result.markdown.fit_markdown
+                    if not content or len(content) < 500:
+                        content = result.markdown.raw_markdown
+                    if content:
+                        url_content += content + "\n\n"
                     print(
-                        f"      WARNING: HTML missing body tag (html={html_len}, raw_md={raw_len}) - possible crawl4ai bug"
+                        f"      Page {page_count}: fit={fit_len}, raw={raw_len}, using={len(content) if content else 0}"
                     )
 
-            if result and result.markdown:
-                # Use fit_markdown if available, otherwise fall back to raw_markdown
-                fit_len = (
-                    len(result.markdown.fit_markdown)
-                    if result.markdown.fit_markdown
-                    else 0
-                )
-                raw_len = (
-                    len(result.markdown.raw_markdown)
-                    if result.markdown.raw_markdown
-                    else 0
-                )
-                content = result.markdown.fit_markdown
-                if not content or len(content) < 500:
-                    # fit_markdown too small, use raw_markdown
-                    content = result.markdown.raw_markdown
-                if content:
-                    url_content += content + "\n\n"
-                print(
-                    f"      Page {page_count}: fit={fit_len}, raw={raw_len}, using={len(content) if content else 0}"
-                )
+            print(f"    - Crawled {page_count} page(s), {len(url_content)} chars total")
 
-        print(f"    - Crawled {page_count} page(s), {len(url_content)} chars total")
-        if url_content:
-            chunks.append(url + "\n" + url_content)
+            if url_content:
+                db.update_crawl_url_result_crawled(
+                    cursor, connection, url_result_id, url_content
+                )
+                combined_parts.append(url + "\n" + url_content)
+            else:
+                db.update_crawl_url_result_failed(
+                    cursor, connection, url_result_id, "No content retrieved"
+                )
+        except Exception as e:
+            error_msg = str(e)
+            print(f"    - Error crawling URL {url}: {error_msg}")
+            db.update_crawl_url_result_failed(
+                cursor, connection, url_result_id, error_msg
+            )
 
-    return "".join(chunks)
+    return "".join(combined_parts)
 
 
 def resolve_url_templates(url: str) -> str:
@@ -616,6 +637,12 @@ def resolve_url_templates(url: str) -> str:
     for placeholder, value in replacements.items():
         url = url.replace(placeholder, value)
     return url
+
+
+def _combine_successful_url_contents(cursor: PgCursor, crawl_result_id: int) -> str:
+    """Build combined markdown from successfully crawled URL results."""
+    rows = db.get_successful_url_contents(cursor, crawl_result_id)
+    return "".join(url + "\n" + content for url, content in rows)
 
 
 async def crawl_source(
@@ -656,20 +683,27 @@ async def crawl_source(
 
     print(f"  Crawling {name} (timeout: {crawl_timeout}s)...")
 
-    # Mutable list so we can recover partial content on timeout
-    chunks: list[str] = []
-
-    # Execute crawl — the only operation that needs exception handling
+    # Execute crawl — the only operation that needs exception handling.
+    # Individual URL results are persisted to crawl_url_results inside
+    # _crawl_all_urls, so partial progress survives timeouts.
     try:
         combined_markdown = await asyncio.wait_for(
-            _crawl_all_urls(crawler, urls, config_kwargs, crawler_config, chunks),
+            _crawl_all_urls(
+                crawler,
+                urls,
+                config_kwargs,
+                crawler_config,
+                cursor,
+                connection,
+                crawl_result_id,
+            ),
             timeout=crawl_timeout,
         )
     except TimeoutError:
         error_msg = f"Crawl timed out after {crawl_timeout} seconds"
         print(f"    - {error_msg}")
         # Recover partial content from URLs that completed before timeout
-        combined_markdown = "".join(chunks)
+        combined_markdown = _combine_successful_url_contents(cursor, crawl_result_id)
         if combined_markdown.strip():
             print(f"    - Saving partial content ({len(combined_markdown)} chars)")
             db.update_crawl_result_crawled(
@@ -684,11 +718,10 @@ async def crawl_source(
         error_msg = str(e)
         print(f"    - Error crawling {name}: {error_msg}")
         db.update_crawl_result_failed(cursor, connection, crawl_result_id, error_msg)
-        # Still update last_crawled_at to prevent immediate retry
         db.update_source_last_crawled(cursor, connection, source["id"])
         return None
 
-    # Validate crawl results
+    # Validate combined crawl results
     if not combined_markdown.strip():
         db.update_crawl_result_failed(
             cursor, connection, crawl_result_id, "No content retrieved"
@@ -696,8 +729,6 @@ async def crawl_source(
         db.update_source_last_crawled(cursor, connection, source["id"])
         return None
 
-    # Check for minimum content size to catch failed crawls early
-    # (e.g., JS-rendered pages that only returned the URL)
     content_size = len(combined_markdown)
     if content_size < MIN_CRAWL_CONTENT_SIZE:
         error_msg = f"Crawled content too small ({content_size} bytes < {MIN_CRAWL_CONTENT_SIZE} minimum) - likely failed to load page content"
@@ -706,7 +737,7 @@ async def crawl_source(
         db.update_source_last_crawled(cursor, connection, source["id"])
         return None
 
-    # Store crawled content in database
+    # Store combined content for downstream extraction
     db.update_crawl_result_crawled(
         cursor, connection, crawl_result_id, combined_markdown
     )

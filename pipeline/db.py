@@ -265,6 +265,55 @@ def update_crawl_result_failed(cursor, connection, crawl_result_id, error_messag
     )
 
 
+def create_crawl_url_result(cursor, connection, crawl_result_id, url):
+    """Create a pending crawl_url_result record and return its id."""
+    cursor.execute(
+        """INSERT INTO crawl_url_results (crawl_result_id, url, status, created_at)
+           VALUES (%s, %s, 'pending', NOW())
+           RETURNING id""",
+        (crawl_result_id, url),
+    )
+    new_id = cursor.fetchone()[0]
+    connection.commit()
+    return new_id
+
+
+def update_crawl_url_result_crawled(cursor, connection, url_result_id, content):
+    """Mark a URL result as crawled and store its content."""
+    cursor.execute(
+        """UPDATE crawl_url_results
+           SET status = 'crawled', crawled_content = %s, crawled_at = NOW()
+           WHERE id = %s""",
+        (content, url_result_id),
+    )
+    connection.commit()
+
+
+def update_crawl_url_result_failed(cursor, connection, url_result_id, error_message):
+    """Mark a URL result as failed."""
+    cursor.execute(
+        """UPDATE crawl_url_results
+           SET status = 'failed', error_message = %s, crawled_at = NOW()
+           WHERE id = %s""",
+        (error_message[:65535] if error_message else None, url_result_id),
+    )
+    connection.commit()
+
+
+def get_successful_url_contents(cursor, crawl_result_id):
+    """Get crawled content from all successful URL results for a crawl result.
+
+    Returns a list of (url, crawled_content) tuples ordered by creation time.
+    """
+    cursor.execute(
+        """SELECT url, crawled_content FROM crawl_url_results
+           WHERE crawl_result_id = %s AND status = 'crawled'
+           ORDER BY created_at ASC""",
+        (crawl_result_id,),
+    )
+    return cursor.fetchall()
+
+
 def update_source_last_crawled(cursor, connection, source_id):
     """Update the last_crawled_at timestamp for a source and reset force_crawl flag."""
     cursor.execute(
