@@ -9,6 +9,7 @@ from api.models.base import CrawlJobStatus, CrawlResultStatus
 __all__ = [
     "CrawlContentResponse",
     "CrawlSummaryResponse",
+    "CrawlUrlResultResponse",
     "ExtractedEventResponse",
     "ExtractedEventListItem",
     "CrawlResultResponse",
@@ -43,6 +44,23 @@ class CrawlContentResponse(BaseModel):
     id: int
     crawled_content: str | None = None
     extracted_content: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# CrawlUrlResult
+# ---------------------------------------------------------------------------
+
+
+class CrawlUrlResultResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    crawl_result_id: int
+    url: str
+    status: CrawlResultStatus
+    error_message: str | None = None
+    crawled_at: datetime | None = None
+    created_at: datetime
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +117,7 @@ class CrawlResultResponse(BaseModel):
 class CrawlResultDetailResponse(CrawlResultResponse):
     extracted_events: list[ExtractedEventListItem] = []
     content: CrawlContentResponse | None = None
+    url_results: list[CrawlUrlResultResponse] = []
 
 
 # ---------------------------------------------------------------------------

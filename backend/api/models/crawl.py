@@ -19,6 +19,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from api.database import Base
 from api.models.base import CrawlJobStatus, CrawlResultStatus, ExtractedEventStatus
 
+# Shared enum type instances — reused across models to avoid duplicate
+# CREATE TYPE statements during metadata.create_all().
+_crawl_result_status_enum = Enum(CrawlResultStatus, name="crawl_result_status")
+
 
 class CrawlJob(Base):
     __tablename__ = "crawl_jobs"
@@ -50,7 +54,7 @@ class CrawlResult(Base):
     )
     source_id: Mapped[int] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"))
     status: Mapped[CrawlResultStatus] = mapped_column(
-        Enum(CrawlResultStatus, name="crawl_result_status"),
+        _crawl_result_status_enum,
         server_default="pending",
     )
     crawled_at: Mapped[datetime | None] = mapped_column(TIMESTAMP)
@@ -70,6 +74,9 @@ class CrawlResult(Base):
     content: Mapped["CrawlContent | None"] = relationship(
         back_populates="crawl_result", uselist=False
     )
+    url_results: Mapped[list["CrawlUrlResult"]] = relationship(
+        back_populates="crawl_result"
+    )
 
 
 class CrawlContent(Base):
@@ -84,6 +91,29 @@ class CrawlContent(Base):
 
     # Relationships
     crawl_result: Mapped["CrawlResult"] = relationship(back_populates="content")
+
+
+class CrawlUrlResult(Base):
+    __tablename__ = "crawl_url_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    crawl_result_id: Mapped[int] = mapped_column(
+        ForeignKey("crawl_results.id", ondelete="CASCADE")
+    )
+    url: Mapped[str] = mapped_column(String(2000))
+    status: Mapped[CrawlResultStatus] = mapped_column(
+        _crawl_result_status_enum,
+        server_default="pending",
+    )
+    crawled_content: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    crawled_at: Mapped[datetime | None] = mapped_column(TIMESTAMP)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.current_timestamp()
+    )
+
+    # Relationships
+    crawl_result: Mapped["CrawlResult"] = relationship(back_populates="url_results")
 
 
 class ExtractedEvent(Base):

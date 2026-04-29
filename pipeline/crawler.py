@@ -8,10 +8,13 @@ import asyncio
 import json
 import re
 from datetime import datetime, timedelta
+from typing import Any
 
 import db
 import httpx
-from crawl4ai import CacheMode
+from crawl4ai import AsyncWebCrawler, CacheMode
+from psycopg2.extensions import connection as PgConnection
+from psycopg2.extensions import cursor as PgCursor
 
 # Default timeout for crawl operations (in seconds)
 DEFAULT_CRAWL_TIMEOUT = 180
@@ -33,7 +36,7 @@ except ImportError:
     raise
 
 
-def strip_jsonp(text, callback_name=None):
+def strip_jsonp(text: str, callback_name: str | None = None) -> str:
     """Strip JSONP callback wrapper to get pure JSON string.
 
     If callback_name provided, strip that exact prefix.
@@ -57,7 +60,9 @@ def strip_jsonp(text, callback_name=None):
     return text
 
 
-def filter_by_date_window(events_dict, days_ahead=30):
+def filter_by_date_window(
+    events_dict: dict[str, Any], days_ahead: int = 30
+) -> dict[str, Any]:
     """Filter events dict (keyed by event ID) to only those with upcoming dates.
 
     Keeps events that have at least one proxima_fecha within the date window,
@@ -126,7 +131,7 @@ CLASIFICACION_EMOJI_MAP = {
 }
 
 
-def _pick_emoji(clasificaciones_dict):
+def _pick_emoji(clasificaciones_dict: dict[str, Any]) -> str:
     """Pick a single emoji from clasificaciones, falling back to calendar."""
     if not isinstance(clasificaciones_dict, dict):
         return "\U0001f4c5"  # default calendar
@@ -137,7 +142,9 @@ def _pick_emoji(clasificaciones_dict):
     return "\U0001f3ad"  # generic performing arts
 
 
-def map_json_api_to_extracted(events_dict):
+def map_json_api_to_extracted(
+    events_dict: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
     """Map Alternativa Teatral structured JSON directly to the Event schema.
 
     Returns a dict ``{"events": [...]}``, the format that
@@ -233,7 +240,7 @@ def map_json_api_to_extracted(events_dict):
     return {"events": mapped_events}
 
 
-def flatten_events_to_markdown(events_dict):
+def flatten_events_to_markdown(events_dict: dict[str, Any]) -> str:
     """Convert filtered JSON events dict to markdown for Gemini extraction.
 
     For each event produces:
@@ -298,7 +305,12 @@ def flatten_events_to_markdown(events_dict):
     return "\n".join(lines)
 
 
-async def crawl_json_api(source, cursor, connection, crawl_job_id):
+async def crawl_json_api(
+    source: dict[str, Any],
+    cursor: PgCursor,
+    connection: PgConnection,
+    crawl_job_id: int,
+) -> tuple[int | None, dict[str, Any] | None]:
     """Crawl a source via HTTP GET to a JSON/JSONP API endpoint.
 
     Args:
@@ -425,7 +437,185 @@ async def crawl_json_api(source, cursor, connection, crawl_job_id):
         return None, None
 
 
-def resolve_url_templates(url):
+def _build_crawl_config_kwargs(source: dict[str, Any]) -> dict[str, Any]:
+    """Build CrawlerRunConfig kwargs from source settings.
+
+    Returns a dict of kwargs ready for ``CrawlerRunConfig(**kwargs)``.
+    Callers can override individual keys (e.g. js_code) before constructing.
+    """
+    # JavaScript code for dynamic content loading
+    js_code = source.get("js_code") or ""
+    if not js_code:
+        selector = source.get("selector")
+        num_clicks = source.get("num_clicks", 2)
+        if selector and num_clicks:
+            js_code = (
+                f"for (let i = 0; i < {num_clicks}; i++) {{"
+                f"await new Promise(resolve => setTimeout(resolve, 1000)); "
+                f"document.querySelector('{selector}').click();}}"
+            )
+
+    # Deep crawling strategy based on keywords
+    keywords = source.get("keywords")
+    if keywords:
+        filters = [f"*{k.strip()}*" for k in keywords.split(", ")]
+        url_filter = URLPatternFilter(patterns=filters)
+        deep_crawl_strategy = BestFirstCrawlingStrategy(
+            max_depth=1,
+            include_external=True,
+            filter_chain=FilterChain([url_filter]),
+            max_pages=source.get("max_pages", 30),
+        )
+    else:
+        deep_crawl_strategy = None
+
+    # Markdown generator with optional content filter
+    filter_threshold = source.get("content_filter_threshold")
+    if filter_threshold is not None and float(filter_threshold) > 0:
+        md_generator = DefaultMarkdownGenerator(
+            content_filter=PruningContentFilter(
+                threshold=float(filter_threshold),
+                threshold_type="fixed",
+                min_word_threshold=0,
+            ),
+            options={"ignore_links": False},
+        )
+    else:
+        md_generator = DefaultMarkdownGenerator(
+            options={"ignore_links": False},
+        )
+
+    scan_full_page = source.get("scan_full_page")
+    if scan_full_page is None:
+        scan_full_page = True
+
+    return {
+        "word_count_threshold": 5,
+        "excluded_tags": [],
+        "process_iframes": True,
+        "cache_mode": CacheMode.BYPASS,
+        "js_code": js_code,
+        "remove_overlay_elements": source.get("remove_overlay_elements", False),
+        "delay_before_return_html": source.get("delay_before_return_html") or 5,
+        "scan_full_page": scan_full_page,
+        "scroll_delay": source.get("scroll_delay") or 0.2,
+        "page_timeout": 60000,
+        "wait_until": "domcontentloaded",
+        "ignore_body_visibility": True,
+        "deep_crawl_strategy": deep_crawl_strategy,
+        "markdown_generator": md_generator,
+    }
+
+
+async def _crawl_all_urls(
+    crawler: AsyncWebCrawler,
+    urls: list[dict[str, Any] | str],
+    config_kwargs: dict[str, Any],
+    crawler_config: CrawlerRunConfig,
+    cursor: PgCursor,
+    connection: PgConnection,
+    crawl_result_id: int,
+) -> str:
+    """Crawl all URLs for a source, persisting each result to the database.
+
+    Each URL gets its own ``crawl_url_results`` row so that partial progress
+    survives timeouts and individual failures are tracked independently.
+
+    Returns the combined markdown from all successful URLs.
+    """
+    combined_parts: list[str] = []
+
+    for url_data in urls:
+        # Handle both dict format (with js_code) and string format (legacy)
+        if isinstance(url_data, dict):
+            url = resolve_url_templates(url_data["url"])
+            url_js_code = url_data.get("js_code")
+        else:
+            url = resolve_url_templates(url_data)
+            url_js_code = None
+
+        # Create per-URL tracking record
+        url_result_id = db.create_crawl_url_result(
+            cursor, connection, crawl_result_id, url
+        )
+
+        # Use per-URL js_code if set, otherwise use source-level config
+        if url_js_code:
+            url_config = CrawlerRunConfig(**{**config_kwargs, "js_code": url_js_code})
+        else:
+            url_config = crawler_config
+
+        print(f"    - Processing {url}")
+        url_content = ""
+        page_count = 0
+
+        try:
+            arun_result = await crawler.arun(url=url, config=url_config)
+            print(
+                f"    - arun returned: type={type(arun_result).__name__}, len={len(arun_result) if hasattr(arun_result, '__len__') else 'N/A'}"
+            )
+            for result in arun_result:
+                page_count += 1
+                html_len = len(result.html) if result and result.html else 0
+                has_error = bool(result.error_message) if result else False
+                print(
+                    f"      Page {page_count}: html={html_len}, success={result.success if result else False}, error={result.error_message if has_error else 'none'}"
+                )
+
+                if result and result.html and html_len > 1000:
+                    raw_len = (
+                        len(result.markdown.raw_markdown)
+                        if result.markdown and result.markdown.raw_markdown
+                        else 0
+                    )
+                    has_body = "<body" in result.html.lower()
+                    if not has_body:
+                        print(
+                            f"      WARNING: HTML missing body tag (html={html_len}, raw_md={raw_len}) - possible crawl4ai bug"
+                        )
+
+                if result and result.markdown:
+                    fit_len = (
+                        len(result.markdown.fit_markdown)
+                        if result.markdown.fit_markdown
+                        else 0
+                    )
+                    raw_len = (
+                        len(result.markdown.raw_markdown)
+                        if result.markdown.raw_markdown
+                        else 0
+                    )
+                    content = result.markdown.fit_markdown
+                    if not content or len(content) < 500:
+                        content = result.markdown.raw_markdown
+                    if content:
+                        url_content += content + "\n\n"
+                    print(
+                        f"      Page {page_count}: fit={fit_len}, raw={raw_len}, using={len(content) if content else 0}"
+                    )
+
+            print(f"    - Crawled {page_count} page(s), {len(url_content)} chars total")
+
+            if url_content:
+                db.update_crawl_url_result_crawled(
+                    cursor, connection, url_result_id, url_content
+                )
+                combined_parts.append(url + "\n" + url_content)
+            else:
+                db.update_crawl_url_result_failed(
+                    cursor, connection, url_result_id, "No content retrieved"
+                )
+        except Exception as e:
+            error_msg = str(e)
+            print(f"    - Error crawling URL {url}: {error_msg}")
+            db.update_crawl_url_result_failed(
+                cursor, connection, url_result_id, error_msg
+            )
+
+    return "".join(combined_parts)
+
+
+def resolve_url_templates(url: str) -> str:
     """Resolve date template placeholders in URLs.
 
     Supported placeholders:
@@ -449,7 +639,19 @@ def resolve_url_templates(url):
     return url
 
 
-async def crawl_source(crawler, source, cursor, connection, crawl_job_id):
+def _combine_successful_url_contents(cursor: PgCursor, crawl_result_id: int) -> str:
+    """Build combined markdown from successfully crawled URL results."""
+    rows = db.get_successful_url_contents(cursor, crawl_result_id)
+    return "".join(url + "\n" + content for url, content in rows)
+
+
+async def crawl_source(
+    crawler: AsyncWebCrawler,
+    source: dict[str, Any],
+    cursor: PgCursor,
+    connection: PgConnection,
+    crawl_job_id: int,
+) -> int | None:
     """
     Crawl a source and store the content in the database.
 
@@ -475,234 +677,82 @@ async def crawl_source(crawler, source, cursor, connection, crawl_job_id):
         cursor, connection, crawl_job_id, source["id"]
     )
 
+    config_kwargs = _build_crawl_config_kwargs(source)
+    crawler_config = CrawlerRunConfig(**config_kwargs)
+    crawl_timeout = source.get("crawl_timeout") or DEFAULT_CRAWL_TIMEOUT
+
+    print(f"  Crawling {name} (timeout: {crawl_timeout}s)...")
+
+    # Execute crawl — the only operation that needs exception handling.
+    # Individual URL results are persisted to crawl_url_results inside
+    # _crawl_all_urls, so partial progress survives timeouts.
     try:
-        # Generate JavaScript code for dynamic content loading
-        # Use custom js_code from database if set, otherwise generate from selector/num_clicks
-        js_code = source.get("js_code") or ""
-        if not js_code:
-            selector = source.get("selector")
-            num_clicks = source.get("num_clicks", 2)
-            if selector and num_clicks:
-                js_code = f"for (let i = 0; i < {num_clicks}; i++) {{await new Promise(resolve => setTimeout(resolve, 1000)); document.querySelector('{selector}').click();}}"
-
-        # Configure deep crawling strategy based on keywords
-        keywords = source.get("keywords")
-        if keywords:
-            filters = [f"*{k.strip()}*" for k in keywords.split(", ")]
-            max_pages = source.get("max_pages", 30)
-            url_filter = URLPatternFilter(patterns=filters)
-            deep_crawl_strategy = BestFirstCrawlingStrategy(
-                max_depth=1,
-                include_external=True,
-                filter_chain=FilterChain([url_filter]),
-                max_pages=max_pages,
-            )
-        else:
-            deep_crawl_strategy = None
-
-        # Get per-source crawl settings (with defaults)
-        delay_seconds = source.get("delay_before_return_html") or 5
-        filter_threshold = source.get("content_filter_threshold")
-        scan_full_page = source.get("scan_full_page")
-        if scan_full_page is None:
-            scan_full_page = True
-        remove_overlays = source.get("remove_overlay_elements", False)
-        scroll_delay = source.get("scroll_delay") or 0.2
-        crawl_timeout = source.get("crawl_timeout") or DEFAULT_CRAWL_TIMEOUT
-
-        # Configure markdown generator with optional content filter
-        # If filter_threshold is explicitly 0 or None, disable the filter entirely
-        if filter_threshold is not None and float(filter_threshold) > 0:
-            md_generator = DefaultMarkdownGenerator(
-                content_filter=PruningContentFilter(
-                    threshold=float(filter_threshold),
-                    threshold_type="fixed",
-                    min_word_threshold=0,
-                ),
-                options={"ignore_links": False},
-            )
-        else:
-            # No content filter - use raw markdown
-            md_generator = DefaultMarkdownGenerator(
-                options={"ignore_links": False},
-            )
-
-        # Configure crawler
-        # Note: Don't exclude 'form' as some sites wrap content in forms (e.g., Park Slope Parents calendar)
-        # Note: Don't exclude 'header' as some sites use <header> inside articles for event titles (e.g., Prospect Park)
-        crawler_config = CrawlerRunConfig(
-            word_count_threshold=5,
-            excluded_tags=[],
-            process_iframes=True,
-            cache_mode=CacheMode.BYPASS,  # Don't use cache for fresh content
-            js_code=js_code,
-            remove_overlay_elements=remove_overlays,
-            delay_before_return_html=delay_seconds,
-            scan_full_page=scan_full_page,
-            scroll_delay=scroll_delay,
-            page_timeout=60000,
-            wait_until="domcontentloaded",  # Use domcontentloaded instead of networkidle for faster/more reliable JS navigation
-            ignore_body_visibility=True,  # Don't skip invisible body elements
-            deep_crawl_strategy=deep_crawl_strategy,
-            markdown_generator=md_generator,
+        combined_markdown = await asyncio.wait_for(
+            _crawl_all_urls(
+                crawler,
+                urls,
+                config_kwargs,
+                crawler_config,
+                cursor,
+                connection,
+                crawl_result_id,
+            ),
+            timeout=crawl_timeout,
         )
-
-        print(f"  Crawling {name} (timeout: {crawl_timeout}s)...")
-        combined_markdown = ""
-
-        async def crawl_urls():
-            """Inner function to crawl all URLs, can be wrapped with timeout."""
-            nonlocal combined_markdown
-            for url_data in urls:
-                # Handle both dict format (with js_code) and string format (legacy)
-                if isinstance(url_data, dict):
-                    url = resolve_url_templates(url_data["url"])
-                    url_js_code = url_data.get("js_code")
-                else:
-                    url = resolve_url_templates(url_data)
-                    url_js_code = None
-
-                # Use per-URL js_code if set, otherwise use source-level config
-                if url_js_code:
-                    url_config = CrawlerRunConfig(
-                        word_count_threshold=5,
-                        excluded_tags=[],
-                        process_iframes=True,
-                        cache_mode=CacheMode.BYPASS,
-                        js_code=url_js_code,
-                        remove_overlay_elements=remove_overlays,
-                        delay_before_return_html=delay_seconds,
-                        scan_full_page=scan_full_page,
-                        scroll_delay=scroll_delay,
-                        page_timeout=60000,
-                        wait_until="domcontentloaded",
-                        ignore_body_visibility=True,
-                        deep_crawl_strategy=deep_crawl_strategy,
-                        markdown_generator=md_generator,
-                    )
-                else:
-                    url_config = crawler_config
-
-                print(f"    - Processing {url}")
-                url_content = ""
-                page_count = 0
-
-                arun_result = await crawler.arun(url=url, config=url_config)
-                print(
-                    f"    - arun returned: type={type(arun_result).__name__}, len={len(arun_result) if hasattr(arun_result, '__len__') else 'N/A'}"
-                )
-                for result in arun_result:
-                    page_count += 1
-                    # Debug: show what we received
-                    html_len = len(result.html) if result and result.html else 0
-                    has_error = bool(result.error_message) if result else False
-                    print(
-                        f"      Page {page_count}: html={html_len}, success={result.success if result else False}, error={result.error_message if has_error else 'none'}"
-                    )
-
-                    # Debug: warn if HTML has no body (crawl4ai bug on some sites)
-                    if result and result.html and html_len > 1000:
-                        raw_len = (
-                            len(result.markdown.raw_markdown)
-                            if result.markdown and result.markdown.raw_markdown
-                            else 0
-                        )
-                        has_body = "<body" in result.html.lower()
-                        if not has_body:
-                            print(
-                                f"      WARNING: HTML missing body tag (html={html_len}, raw_md={raw_len}) - possible crawl4ai bug"
-                            )
-
-                    if result and result.markdown:
-                        # Use fit_markdown if available, otherwise fall back to raw_markdown
-                        fit_len = (
-                            len(result.markdown.fit_markdown)
-                            if result.markdown.fit_markdown
-                            else 0
-                        )
-                        raw_len = (
-                            len(result.markdown.raw_markdown)
-                            if result.markdown.raw_markdown
-                            else 0
-                        )
-                        content = result.markdown.fit_markdown
-                        if not content or len(content) < 500:
-                            # fit_markdown too small, use raw_markdown
-                            content = result.markdown.raw_markdown
-                        if content:
-                            url_content += content + "\n\n"
-                        print(
-                            f"      Page {page_count}: fit={fit_len}, raw={raw_len}, using={len(content) if content else 0}"
-                        )
-
-                print(
-                    f"    - Crawled {page_count} page(s), {len(url_content)} chars total"
-                )
-                if url_content:
-                    combined_markdown += url + "\n" + url_content
-
-        # Execute crawl with timeout
-        try:
-            await asyncio.wait_for(crawl_urls(), timeout=crawl_timeout)
-        except TimeoutError:
-            error_msg = f"Crawl timed out after {crawl_timeout} seconds"
-            print(f"    - {error_msg}")
-            # If we got partial content, still save it
-            if combined_markdown.strip():
-                print(f"    - Saving partial content ({len(combined_markdown)} chars)")
-                db.update_crawl_result_crawled(
-                    cursor, connection, crawl_result_id, combined_markdown
-                )
-                db.update_source_last_crawled(cursor, connection, source["id"])
-                return crawl_result_id
-            # No content at all
-            db.update_crawl_result_failed(
-                cursor, connection, crawl_result_id, error_msg
+    except TimeoutError:
+        error_msg = f"Crawl timed out after {crawl_timeout} seconds"
+        print(f"    - {error_msg}")
+        # Recover partial content from URLs that completed before timeout
+        combined_markdown = _combine_successful_url_contents(cursor, crawl_result_id)
+        if combined_markdown.strip():
+            print(f"    - Saving partial content ({len(combined_markdown)} chars)")
+            db.update_crawl_result_crawled(
+                cursor, connection, crawl_result_id, combined_markdown
             )
             db.update_source_last_crawled(cursor, connection, source["id"])
-            return None
-
-        if not combined_markdown.strip():
-            db.update_crawl_result_failed(
-                cursor, connection, crawl_result_id, "No content retrieved"
-            )
-            # Still update last_crawled_at to prevent immediate retry
-            db.update_source_last_crawled(cursor, connection, source["id"])
-            return None
-
-        # Check for minimum content size to catch failed crawls early
-        # (e.g., JS-rendered pages that only returned the URL)
-        content_size = len(combined_markdown)
-        if content_size < MIN_CRAWL_CONTENT_SIZE:
-            error_msg = f"Crawled content too small ({content_size} bytes < {MIN_CRAWL_CONTENT_SIZE} minimum) - likely failed to load page content"
-            print(f"    - {error_msg}")
-            db.update_crawl_result_failed(
-                cursor, connection, crawl_result_id, error_msg
-            )
-            db.update_source_last_crawled(cursor, connection, source["id"])
-            return None
-
-        # Store crawled content in database
-        db.update_crawl_result_crawled(
-            cursor, connection, crawl_result_id, combined_markdown
-        )
+            return crawl_result_id
+        db.update_crawl_result_failed(cursor, connection, crawl_result_id, error_msg)
         db.update_source_last_crawled(cursor, connection, source["id"])
-
-        print(f"    - Stored {len(combined_markdown)} characters of content")
-        return crawl_result_id
-
+        return None
     except Exception as e:
         error_msg = str(e)
         print(f"    - Error crawling {name}: {error_msg}")
         db.update_crawl_result_failed(cursor, connection, crawl_result_id, error_msg)
-        # Still update last_crawled_at to prevent immediate retry
         db.update_source_last_crawled(cursor, connection, source["id"])
         return None
 
+    # Validate combined crawl results
+    if not combined_markdown.strip():
+        db.update_crawl_result_failed(
+            cursor, connection, crawl_result_id, "No content retrieved"
+        )
+        db.update_source_last_crawled(cursor, connection, source["id"])
+        return None
+
+    content_size = len(combined_markdown)
+    if content_size < MIN_CRAWL_CONTENT_SIZE:
+        error_msg = f"Crawled content too small ({content_size} bytes < {MIN_CRAWL_CONTENT_SIZE} minimum) - likely failed to load page content"
+        print(f"    - {error_msg}")
+        db.update_crawl_result_failed(cursor, connection, crawl_result_id, error_msg)
+        db.update_source_last_crawled(cursor, connection, source["id"])
+        return None
+
+    # Store combined content for downstream extraction
+    db.update_crawl_result_crawled(
+        cursor, connection, crawl_result_id, combined_markdown
+    )
+    db.update_source_last_crawled(cursor, connection, source["id"])
+
+    print(f"    - Stored {len(combined_markdown)} characters of content")
+    return crawl_result_id
+
 
 def get_browser_config(
-    javascript_enabled=True, text_mode=True, light_mode=True, use_stealth=False
-):
+    javascript_enabled: bool = True,
+    text_mode: bool = True,
+    light_mode: bool = True,
+    use_stealth: bool = False,
+) -> BrowserConfig:
     """
     Get the browser configuration for crawling.
 

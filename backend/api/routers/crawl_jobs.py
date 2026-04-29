@@ -75,6 +75,7 @@ async def get_crawl_result(
         .options(
             selectinload(CrawlResult.extracted_events),
             selectinload(CrawlResult.content),
+            selectinload(CrawlResult.url_results),
         )
     )
     result = await db.scalar(stmt)
