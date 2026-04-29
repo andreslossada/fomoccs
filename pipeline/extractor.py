@@ -22,13 +22,13 @@ import db
 import httpx
 import openai
 from dotenv import load_dotenv
+from llm_models import EXTRACTION_MODEL, get_pricing
 from PIL import Image
 from pydantic import BaseModel, Field
 
 load_dotenv()
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_CRAWLER_API_KEY", "")
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash")
 EXTRACTION_TIMEOUT = int(os.environ.get("EXTRACTION_TIMEOUT", "120"))
 if not OPENROUTER_API_KEY:
     raise RuntimeError("OPENROUTER_CRAWLER_API_KEY env var is required")
@@ -37,7 +37,8 @@ openrouter_client = openai.AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
 )
 
-GEMINI_MODEL = OPENROUTER_MODEL
+GEMINI_MODEL = EXTRACTION_MODEL
+OPENROUTER_MODEL = EXTRACTION_MODEL
 GEMINI_TIMEOUT = EXTRACTION_TIMEOUT
 
 
@@ -57,9 +58,8 @@ def _normalize_events_response(parsed):
 # Token Usage Tracking
 # =============================================================================
 
-# OpenRouter google/gemini-2.5-flash pricing (per token)
-PRICE_PER_INPUT_TOKEN = 0.10 / 1_000_000  # $0.10 per 1M tokens
-PRICE_PER_OUTPUT_TOKEN = 0.40 / 1_000_000  # $0.40 per 1M tokens (includes thinking)
+# Pricing pulled from llm_models registry (keyed by EXTRACTION_MODEL)
+PRICE_PER_INPUT_TOKEN, PRICE_PER_OUTPUT_TOKEN = get_pricing(EXTRACTION_MODEL)
 
 
 @dataclass
