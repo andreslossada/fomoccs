@@ -23,6 +23,7 @@ except ImportError:
 DB_CONFIG = {
     "local": {
         "host": "localhost",
+        "port": 5433,
         "dbname": "momaverse",
         "user": os.environ.get("USER", "postgres"),
         "password": "",
@@ -50,6 +51,7 @@ def create_connection():
     try:
         conn = psycopg2.connect(
             host=config["host"],
+            port=config.get("port", 5432),
             dbname=config["dbname"],
             user=config["user"],
             password=config["password"],

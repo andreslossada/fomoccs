@@ -18,6 +18,9 @@ import argparse
 import asyncio
 import sys
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import crawler
 import db
 import extractor
