@@ -1,0 +1,272 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      component:
+        description: 'Component to deploy'
+        required: true
+        type: choice
+        options:
+          - all
+          - backend
+          - pipeline
+          - frontend
+      force:
+        description: 'Force deploy even if no changes detected'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  # === Change Detection ===
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      pipeline: ${{ steps.filter.outputs.pipeline }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'backend/*'
+              - 'deploy/deploy-backend.sh'
+            pipeline:
+              - 'pipeline/**'
+              - 'pipeline/*'
+              - 'deploy/deploy-pipeline.sh'
+            frontend:
+              - 'src/**'
+              - 'build.js'
+              - 'package.json'
+              - 'deploy/deploy-frontend.sh'
+
+  # === Lint & Test Backend ===
+  test-backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: momaverse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.14'
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy .
+      - name: Run tests
+        env:
+          DB_HOST: localhost
+          DB_NAME: momaverse_test
+          DB_USER: postgres
+          DB_PASS: postgres
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-not-for-production
+          ENVIRONMENT: test
+        run: uv run pytest -v
+
+  # === Test Pipeline ===
+  test-pipeline:
+    needs: changes
+    if: needs.changes.outputs.pipeline == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pipeline
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: momaverse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+      - run: uv sync
+      - name: Run tests
+        env:
+          DB_HOST: localhost
+          DB_NAME: momaverse_test
+          DB_USER: postgres
+          DB_PASS: postgres
+          ENVIRONMENT: test
+        run: uv run pytest -v
+
+  # === Test & Build Frontend ===
+  test-frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build --if-present
+      - name: Verify build output
+        run: |
+          test -f dist/index.html || (echo "Missing dist/index.html" && exit 1)
+          FILE_COUNT=$(find dist -type f | wc -l)
+          test "$FILE_COUNT" -ge 3 || (echo "dist/ has only $FILE_COUNT files" && exit 1)
+
+  # === Deploy Backend ===
+  deploy-backend:
+    needs: [changes, test-backend]
+    if: |
+      (github.ref == 'refs/heads/main' && needs.changes.outputs.backend == 'true') ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.component == 'all' || github.event.inputs.component == 'backend'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: momaverse
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+      - name: Build and push Docker image
+        run: |
+          IMAGE="us-central1-docker.pkg.dev/momaverse/momaverse-docker/backend:${GITHUB_SHA::7}"
+          docker build --platform linux/amd64 -t "$IMAGE" backend/
+          docker push "$IMAGE"
+      - name: Deploy to Cloud Run (API)
+        run: |
+          IMAGE="us-central1-docker.pkg.dev/momaverse/momaverse-docker/backend:${GITHUB_SHA::7}"
+          gcloud run deploy momaverse-backend --image="$IMAGE" --region=us-central1 --project=momaverse
+      - name: Deploy to Cloud Run (Worker)
+        run: |
+          IMAGE="us-central1-docker.pkg.dev/momaverse/momaverse-docker/backend:${GITHUB_SHA::7}"
+          gcloud run deploy momaverse-backend-worker \
+            --image="$IMAGE" --region=us-central1 --project=momaverse \
+            --command=celery --args="-A,api.celery_app,worker,--loglevel=info,--concurrency=4" \
+            --set-env-vars="REDIS_URL=${{ secrets.REDIS_URL }}" \
+            --no-cpu-throttling --min-instances=1
+
+  # === Deploy Pipeline ===
+  deploy-pipeline:
+    needs: [changes, test-pipeline]
+    if: |
+      (github.ref == 'refs/heads/main' && needs.changes.outputs.pipeline == 'true') ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.component == 'all' || github.event.inputs.component == 'pipeline'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: momaverse
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+      - name: Build and push Docker image
+        run: |
+          IMAGE="us-central1-docker.pkg.dev/momaverse/momaverse-docker/pipeline:${GITHUB_SHA::7}"
+          docker build --platform linux/amd64 -t "$IMAGE" pipeline/
+          docker push "$IMAGE"
+      - name: Deploy to Cloud Run Job
+        run: |
+          IMAGE="us-central1-docker.pkg.dev/momaverse/momaverse-docker/pipeline:${GITHUB_SHA::7}"
+          gcloud run jobs update momaverse-pipeline \
+            --image="$IMAGE" --region=us-central1 --project=momaverse \
+            --update-env-vars="REDIS_URL=${{ secrets.REDIS_URL }}"
+
+  # === Deploy Frontend ===
+  deploy-frontend:
+    needs: [changes, test-frontend]
+    if: |
+      (github.ref == 'refs/heads/main' && needs.changes.outputs.frontend == 'true') ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.component == 'all' || github.event.inputs.component == 'frontend'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: momaverse
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Get backend URL
+        run: |
+          BACKEND_URL=$(gcloud run services describe momaverse-backend \
+            --region=us-central1 --project=momaverse --format='value(status.url)')
+          echo "API_BASE_URL=$BACKEND_URL" >> $GITHUB_ENV
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Sync to GCS
+        run: |
+          gcloud storage rsync dist/ gs://momaverse-frontend \
+            --recursive --delete-unmatched-destination-objects --project=momaverse
+      - name: Set cache headers
+        run: |
+          gcloud storage objects update "gs://momaverse-frontend/**/*.html" \
+            --cache-control="no-cache" --project=momaverse 2>/dev/null || true
+          gcloud storage objects update "gs://momaverse-frontend/*.html" \
+            --cache-control="no-cache" --project=momaverse 2>/dev/null || true
+          for ext in js css; do
+            gcloud storage objects update "gs://momaverse-frontend/**/*.${ext}" \
+              --cache-control="public, max-age=31536000, immutable" --project=momaverse 2>/dev/null || true
+            gcloud storage objects update "gs://momaverse-frontend/*.${ext}" \
+              --cache-control="public, max-age=31536000, immutable" --project=momaverse 2>/dev/null || true
+          done
