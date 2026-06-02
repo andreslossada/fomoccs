@@ -1,4 +1,4 @@
-"""Geoapify geocoding service for Buenos Aires venue resolution."""
+"""Geoapify geocoding service for Caracas venue resolution."""
 
 import math
 import re
@@ -6,15 +6,15 @@ from dataclasses import dataclass
 
 import httpx
 
-# Buenos Aires bounding box (ported from pipeline/location_resolver.py)
-BA_BOUNDS = {
-    "lat_min": -34.75,
-    "lat_max": -34.50,
-    "lng_min": -58.60,
-    "lng_max": -58.28,
+# Caracas bounding box
+CCS_BOUNDS = {
+    "lat_min": 10.35,
+    "lat_max": 10.55,
+    "lng_min": -67.05,
+    "lng_max": -66.75,
 }
 
-BA_CENTER = {"lat": -34.61, "lng": -58.44}
+CCS_CENTER = {"lat": 10.48, "lng": -66.90}
 
 GEOAPIFY_SEARCH_URL = "https://api.geoapify.com/v1/geocode/search"
 
@@ -38,11 +38,11 @@ def normalize_location_name(name: str) -> str:
     return " ".join(normalized.split())
 
 
-def is_within_buenos_aires(lat: float, lng: float) -> bool:
-    """Check if coordinates fall within Buenos Aires bounds."""
+def is_within_caracas(lat: float, lng: float) -> bool:
+    """Check if coordinates fall within Caracas bounds."""
     return (
-        BA_BOUNDS["lat_min"] <= lat <= BA_BOUNDS["lat_max"]
-        and BA_BOUNDS["lng_min"] <= lng <= BA_BOUNDS["lng_max"]
+        CCS_BOUNDS["lat_min"] <= lat <= CCS_BOUNDS["lat_max"]
+        and CCS_BOUNDS["lng_min"] <= lng <= CCS_BOUNDS["lng_max"]
     )
 
 
@@ -68,17 +68,17 @@ async def geocode_location_name(
 ) -> GeocodingResult | None:
     """Forward-geocode a venue name via Geoapify, biased to Buenos Aires.
 
-    Returns None if no result found, API call fails, or result is outside BA.
+    Returns None if no result found, API call fails, or result is outside Caracas.
     If *client* is provided it will be reused; otherwise a new one is created.
     """
-    search_text = f"{name}, {address}" if address else f"{name}, Buenos Aires"
+    search_text = f"{name}, {address}" if address else f"{name}, Caracas"
     params: dict[str, str | int] = {
         "text": search_text,
         "filter": (
-            f"rect:{BA_BOUNDS['lng_min']},{BA_BOUNDS['lat_min']},"
-            f"{BA_BOUNDS['lng_max']},{BA_BOUNDS['lat_max']}"
+            f"rect:{CCS_BOUNDS['lng_min']},{CCS_BOUNDS['lat_min']},"
+            f"{CCS_BOUNDS['lng_max']},{CCS_BOUNDS['lat_max']}"
         ),
-        "bias": f"proximity:{BA_CENTER['lng']},{BA_CENTER['lat']}",
+        "bias": f"proximity:{CCS_CENTER['lng']},{CCS_CENTER['lat']}",
         "type": "amenity",
         "format": "json",
         "limit": 1,
@@ -109,7 +109,7 @@ async def geocode_location_name(
     if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
         return None
 
-    if not is_within_buenos_aires(float(lat), float(lon)):
+    if not is_within_caracas(float(lat), float(lon)):
         return None
 
     rank = hit.get("rank", {})

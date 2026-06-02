@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Momaverse Buenos Aires</title>
+    <title>Fomoccs Caracas</title>
     <link rel="icon" href="images/torch.svg" type="image/svg+xml">
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin=""/>
     <link rel="preconnect" href="https://rsms.me/">
@@ -20,14 +20,14 @@
                 <div>
                     <div id="logo-menu-wrapper">
                         <button id="logo-container" class="initially-hidden" aria-label="Open menu" aria-haspopup="true" aria-expanded="false">
-                            <img src="images/torch.svg" alt="Momaverse Buenos Aires Logo" id="logo">
+                            <img src="images/torch.svg" alt="Fomoccs Caracas Logo" id="logo">
                         </button>
                         <div id="logo-menu" class="logo-menu-hidden" role="menu" aria-label="Logo menu">
                             <button type="button" id="settings-btn" role="menuitem">⚙️ Settings</button>
                             <button type="button" id="share-view-btn" role="menuitem">🔗 Share this view</button>
                             <a href="admin" target="_blank" role="menuitem">🛠️ Database View</a>
                             <button type="button" id="feedback-btn" role="menuitem">💬 Submit feedback</button>
-                            <a href="about.html" target="_blank" role="menuitem">About Momaverse</a>
+                            <a href="about.html" target="_blank" role="menuitem">About Fomoccs</a>
                         </div>
                     </div>
                     <div class="filter-group" id="omni-search-filter">
@@ -57,7 +57,7 @@
 
         <div id="map-container">
             <div id="map-wrapper">
-                <div id="map" role="application" aria-label="Interactive map of Buenos Aires events"></div>
+                <div id="map" role="application" aria-label="Mapa interactivo de eventos en Caracas"></div>
             </div>
         </div>
     </div>
@@ -66,11 +66,11 @@
     <div id="welcome-modal" class="modal" role="dialog" aria-labelledby="welcome-modal-title" aria-modal="true">
         <div class="modal-content">
             <div class="modal-header">
-                <img src="images/logo.svg" alt="Momaverse Buenos Aires Logo" class="modal-logo">
+                <img src="images/logo.svg" alt="Fomoccs Caracas Logo" class="modal-logo">
                 <button id="welcome-close-btn" class="modal-close-btn" aria-label="Close welcome">&times;</button>
             </div>
             <div class="modal-body">
-                <p>Welcome! <strong>Momaverse</strong> is an interactive map of upcoming events in the Buenos Aires area.</p>
+                <p>Bienvenido! <strong>Fomoccs</strong> es un mapa interactivo de eventos en Caracas.</p>
                 <p>Events are collected automatically from many different websites every day.</p>
                 <p>This project is a labor of love and will always be free and open-source. <a href="about.html" target="_blank" rel="noopener" class="external-link">Learn more <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a></p>
             </div>
@@ -88,7 +88,7 @@
                 <button id="feedback-close-btn" class="modal-close-btn" aria-label="Close feedback">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="feedback-description">Help improve <strong>Momaverse</strong>! 💖 <br> Share your thoughts, report issues, or suggest new features</p>
+                <p class="feedback-description">Ayuda a mejorar <strong>Fomoccs</strong>! 💖 <br> Comparte tus ideas, reporta errores o sugiere nuevas funciones</p>
                 <textarea id="feedback-message" placeholder="Enter your feedback here..." rows="6" maxlength="10000" aria-label="Feedback message"></textarea>
                 <div class="feedback-footer">
                     <span id="feedback-char-count" class="feedback-char-count">0 / 10000</span>

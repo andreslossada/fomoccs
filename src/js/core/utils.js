@@ -166,31 +166,13 @@ const Utils = (() => {
         return { hours, minutes, seconds: 0 };
     }
 
-    function getNewYorkOffset(date) {
-        const year = date.getFullYear();
-        const mar1 = new Date(year, 2, 1);
-        const firstSundayInMarch = new Date(mar1);
-        firstSundayInMarch.setDate(1 + (7 - mar1.getDay()) % 7);
-        const dstStart = new Date(firstSundayInMarch);
-        dstStart.setDate(firstSundayInMarch.getDate() + 7);
-        dstStart.setHours(2);
-
-        const nov1 = new Date(year, 10, 1);
-        const dstEnd = new Date(nov1);
-        dstEnd.setDate(1 + (7 - nov1.getDay()) % 7);
-        dstEnd.setHours(2);
-
-        return (date >= dstStart && date < dstEnd) ? '-04:00' : '-05:00';
-    }
-
-    function parseDateInNewYork(dateStr, timeStr) {
+    function parseDateInCaracas(dateStr, timeStr) {
         if (!dateStr) return null;
         const tempDate = new Date(dateStr.replace(/-/g, '/') + ' 12:00:00');
         if (isNaN(tempDate.getTime())) return null;
 
-        const offset = getNewYorkOffset(tempDate);
         const timeParts = parseTime(timeStr);
-        const isoString = `${dateStr}T${String(timeParts.hours).padStart(2, '0')}:${String(timeParts.minutes).padStart(2, '0')}:${String(timeParts.seconds).padStart(2, '0')}${offset}`;
+        const isoString = `${dateStr}T${String(timeParts.hours).padStart(2, '0')}:${String(timeParts.minutes).padStart(2, '0')}:${String(timeParts.seconds).padStart(2, '0')}-04:00`;
         const finalDate = new Date(isoString);
 
         return isNaN(finalDate.getTime()) ? null : finalDate;
@@ -359,7 +341,9 @@ const Utils = (() => {
         isValidUrl,
         formatDateForDisplay,
         formatEventDateTimeCompactly,
-        parseDateInNewYork,
+        parseDateInCaracas,
+        // Legacy alias for backward compatibility
+        parseDateInNewYork: parseDateInCaracas,
         isWindows,
         isCountryFlagEmoji,
         normalizeForSearch,

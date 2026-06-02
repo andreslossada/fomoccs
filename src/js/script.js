@@ -121,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 '#a8d085', '#c88598', '#e09075', '#85a0d8', '#75c0b0', '#e89075',
                 '#9585e0', '#e0b085', '#8dc090', '#c88590', '#859098', '#a8b075'
             ],
-            MAP_INITIAL_VIEW: [-34.6083, -58.4000],
+            MAP_INITIAL_VIEW: [10.4806, -66.9036],
             MAP_INITIAL_ZOOM: 13,
             MAP_USER_LOCATION_ZOOM: 14,
             MAP_STYLE_DARK: 'data/map-style-dark.json?v=8',

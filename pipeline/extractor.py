@@ -730,7 +730,7 @@ async def extract_chunk(chunk_content, current_date_string, notes, tracker=None)
     """
     note_section = f"\n\nIMPORTANT: {notes}" if notes else ""
 
-    prompt = f"""Today's date is {current_date_string}. Extract ALL events from this Buenos Aires events page content.
+    prompt = f"""Today's date is {current_date_string}. Extract ALL events from this Caracas events page content.
 
 For each event provide: name, location (venue name), occurrences (array of start_date in YYYY-MM-DD, start_time, end_time), and url if available.
 
@@ -879,7 +879,7 @@ NOTE: The above is ONLY for reference to maintain consistent naming. You MUST st
 
 """
 
-    return f"""Today's date is {current_date_string}. We are assembling a database of upcoming events in Buenos Aires, Argentina. Currently, we are inspecting {name} ({url}).
+    return f"""Today's date is {current_date_string}. We are assembling a database of upcoming events in Caracas, Venezuela. Currently, we are inspecting {name} ({url}).
 {existing_events_section}
 Based on the website content below, extract all upcoming events. For each event, provide:
 - name: The event name
@@ -892,14 +892,14 @@ Based on the website content below, extract all upcoming events. For each event,
   - end_time: End time (optional)
 - description: 1-3 sentence description. MUST be written in Spanish.
 - url: Specific event URL if available
-- hashtags: 4-7 CamelCase tags in Spanish (e.g., ["Comedia", "Música", "Teatro", "Tango"]). Include a mix of high-level and granular tags. Avoid location-specific or Buenos Aires-redundant tags.
+- hashtags: 4-7 CamelCase tags in Spanish (e.g., ["Comedia", "Musica", "Teatro", "Gastronomia"]). Include a mix of high-level and granular tags. Avoid location-specific or Caracas-redundant tags.
 - emoji: A single emoji representing the event
 
 {note_section}
 Rules:
 - Extract ALL events from the page - do not skip or summarize
-- Only include events in the Buenos Aires area within the next 3 months
-- Dates on Argentine sites often use DD/MM/YYYY format and Spanish month names.
+- Only include events in the Caracas area within the next 3 months
+- Dates on Venezuelan sites often use DD/MM/YYYY format and Spanish month names.
 - Ignore unrelated event sections ("Hot Events", "Similar events", etc.)
 - For recurring events, expand ALL individual dates into the occurrences array
 - If no events are found, return an empty events list

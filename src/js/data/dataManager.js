@@ -231,10 +231,10 @@ const DataManager = (() => {
 
         const parsedOccurrences = occurrencesArray.map(occ => {
             const [startDateStr, startTimeStr, endDateStr, endTimeStr] = occ;
-            const start = Utils.parseDateInNewYork(startDateStr, startTimeStr);
+            const start = Utils.parseDateInCaracas(startDateStr, startTimeStr);
             const effectiveEndDateStr = (endDateStr && endDateStr.trim() !== '') ? endDateStr : startDateStr;
             const effectiveEndTimeStr = (endTimeStr && endTimeStr.trim() !== '') ? endTimeStr : startTimeStr;
-            const end = Utils.parseDateInNewYork(effectiveEndDateStr, effectiveEndTimeStr);
+            const end = Utils.parseDateInCaracas(effectiveEndDateStr, effectiveEndTimeStr);
 
             if (start && !end) {
                 return { start, end: new Date(start), originalStartTime: startTimeStr, originalEndTime: endTimeStr };
