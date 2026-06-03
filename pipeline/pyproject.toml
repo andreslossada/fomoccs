@@ -1,7 +1,7 @@
 [project]
-name = "momaverse-pipeline"
+name = "fomoccs-pipeline"
 version = "0.1.0"
-description = "Momaverse event crawling and processing pipeline"
+description = "Fomoccs event crawling and processing pipeline"
 requires-python = ">=3.12"
 dependencies = [
     "crawl4ai>=0.8.0",

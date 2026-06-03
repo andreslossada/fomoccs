@@ -1,7 +1,7 @@
 locals {
-  name_prefix = "momaverse"
+  name_prefix = "fomoccs"
   labels = {
-    project    = "momaverse"
+    project    = "fomoccs"
     managed-by = "terraform"
   }
 }
@@ -110,13 +110,13 @@ resource "google_sql_database_instance" "postgres" {
   depends_on = [google_service_networking_connection.private_vpc]
 }
 
-resource "google_sql_database" "momaverse" {
-  name     = "momaverse"
+resource "google_sql_database" "fomoccs" {
+  name     = "fomoccs"
   instance = google_sql_database_instance.postgres.name
 }
 
-resource "google_sql_user" "momaverse" {
-  name     = "momaverse"
+resource "google_sql_user" "fomoccs" {
+  name     = "fomoccs"
   instance = google_sql_database_instance.postgres.name
   password = random_password.db_password.result
 }
@@ -172,12 +172,12 @@ resource "google_secret_manager_secret" "gemini_api_key" {
 
 resource "google_service_account" "backend" {
   account_id   = "${local.name_prefix}-backend"
-  display_name = "Momaverse Backend"
+  display_name = "Fomoccs Backend"
 }
 
 resource "google_service_account" "pipeline" {
   account_id   = "${local.name_prefix}-pipeline"
-  display_name = "Momaverse Pipeline"
+  display_name = "Fomoccs Pipeline"
 }
 
 # Backend: access secrets + Cloud SQL
@@ -271,11 +271,11 @@ resource "google_cloud_run_v2_service" "backend" {
       }
       env {
         name  = "DB_NAME"
-        value = google_sql_database.momaverse.name
+        value = google_sql_database.fomoccs.name
       }
       env {
         name  = "DB_USER"
-        value = google_sql_user.momaverse.name
+        value = google_sql_user.fomoccs.name
       }
       env {
         name = "DB_PASS"
@@ -351,11 +351,11 @@ resource "google_cloud_run_v2_job" "pipeline" {
         }
         env {
           name  = "PROD_DB_NAME"
-          value = google_sql_database.momaverse.name
+          value = google_sql_database.fomoccs.name
         }
         env {
           name  = "PROD_DB_USER"
-          value = google_sql_user.momaverse.name
+          value = google_sql_user.fomoccs.name
         }
         env {
           name  = "PROD_DB_HOST"

@@ -1,4 +1,4 @@
-"""Shared test fixtures for the momaverse backend test suite."""
+"""Shared test fixtures for the fomoccs backend test suite."""
 
 from collections.abc import AsyncGenerator
 

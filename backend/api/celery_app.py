@@ -4,7 +4,7 @@ from api.config import get_settings
 
 settings = get_settings()
 
-celery = Celery("momaverse")
+celery = Celery("fomoccs")
 
 celery.conf.update(
     broker_url=settings.redis_url,

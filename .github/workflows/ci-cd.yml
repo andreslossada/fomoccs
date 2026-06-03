@@ -63,7 +63,7 @@ jobs:
         image: pgvector/pgvector:pg15
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: momaverse_test
+          POSTGRES_DB: fomoccs_test
         ports:
           - 5432:5432
         options: >-
@@ -92,7 +92,7 @@ jobs:
       - name: Run tests
         env:
           DB_HOST: localhost
-          DB_NAME: momaverse_test
+          DB_NAME: fomoccs_test
           DB_USER: postgres
           DB_PASS: postgres
           REDIS_URL: redis://localhost:6379/0
@@ -113,7 +113,7 @@ jobs:
         image: pgvector/pgvector:pg15
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: momaverse_test
+          POSTGRES_DB: fomoccs_test
         ports:
           - 5432:5432
         options: >-
@@ -130,7 +130,7 @@ jobs:
       - name: Run tests
         env:
           DB_HOST: localhost
-          DB_NAME: momaverse_test
+          DB_NAME: fomoccs_test
           DB_USER: postgres
           DB_PASS: postgres
           ENVIRONMENT: test
@@ -169,25 +169,25 @@ jobs:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2
         with:
-          project_id: momaverse
+          project_id: fomoccs
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.DEPLOYER_SA }}
       - uses: google-github-actions/setup-gcloud@v2
       - run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
       - name: Build and push Docker image
         run: |
-          IMAGE="us-central1-docker.pkg.dev/momaverse/momaverse-docker/backend:${GITHUB_SHA::7}"
+          IMAGE="us-central1-docker.pkg.dev/fomoccs/fomoccs-docker/backend:${GITHUB_SHA::7}"
           docker build --platform linux/amd64 -t "$IMAGE" backend/
           docker push "$IMAGE"
       - name: Deploy to Cloud Run (API)
         run: |
-          IMAGE="us-central1-docker.pkg.dev/momaverse/momaverse-docker/backend:${GITHUB_SHA::7}"
-          gcloud run deploy momaverse-backend --image="$IMAGE" --region=us-central1 --project=momaverse
+          IMAGE="us-central1-docker.pkg.dev/fomoccs/fomoccs-docker/backend:${GITHUB_SHA::7}"
+          gcloud run deploy fomoccs-backend --image="$IMAGE" --region=us-central1 --project=fomoccs
       - name: Deploy to Cloud Run (Worker)
         run: |
-          IMAGE="us-central1-docker.pkg.dev/momaverse/momaverse-docker/backend:${GITHUB_SHA::7}"
-          gcloud run deploy momaverse-backend-worker \
-            --image="$IMAGE" --region=us-central1 --project=momaverse \
+          IMAGE="us-central1-docker.pkg.dev/fomoccs/fomoccs-docker/backend:${GITHUB_SHA::7}"
+          gcloud run deploy fomoccs-backend-worker \
+            --image="$IMAGE" --region=us-central1 --project=fomoccs \
             --command=celery --args="-A,api.celery_app,worker,--loglevel=info,--concurrency=4" \
             --set-env-vars="REDIS_URL=${{ secrets.REDIS_URL }}" \
             --no-cpu-throttling --min-instances=1
@@ -206,21 +206,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2
         with:
-          project_id: momaverse
+          project_id: fomoccs
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.DEPLOYER_SA }}
       - uses: google-github-actions/setup-gcloud@v2
       - run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
       - name: Build and push Docker image
         run: |
-          IMAGE="us-central1-docker.pkg.dev/momaverse/momaverse-docker/pipeline:${GITHUB_SHA::7}"
+          IMAGE="us-central1-docker.pkg.dev/fomoccs/fomoccs-docker/pipeline:${GITHUB_SHA::7}"
           docker build --platform linux/amd64 -t "$IMAGE" pipeline/
           docker push "$IMAGE"
       - name: Deploy to Cloud Run Job
         run: |
-          IMAGE="us-central1-docker.pkg.dev/momaverse/momaverse-docker/pipeline:${GITHUB_SHA::7}"
-          gcloud run jobs update momaverse-pipeline \
-            --image="$IMAGE" --region=us-central1 --project=momaverse \
+          IMAGE="us-central1-docker.pkg.dev/fomoccs/fomoccs-docker/pipeline:${GITHUB_SHA::7}"
+          gcloud run jobs update fomoccs-pipeline \
+            --image="$IMAGE" --region=us-central1 --project=fomoccs \
             --update-env-vars="REDIS_URL=${{ secrets.REDIS_URL }}"
 
   # === Deploy Frontend ===
@@ -237,7 +237,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2
         with:
-          project_id: momaverse
+          project_id: fomoccs
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.DEPLOYER_SA }}
       - uses: google-github-actions/setup-gcloud@v2
@@ -247,8 +247,8 @@ jobs:
           cache: 'npm'
       - name: Get backend URL
         run: |
-          BACKEND_URL=$(gcloud run services describe momaverse-backend \
-            --region=us-central1 --project=momaverse --format='value(status.url)')
+          BACKEND_URL=$(gcloud run services describe fomoccs-backend \
+            --region=us-central1 --project=fomoccs --format='value(status.url)')
           echo "API_BASE_URL=$BACKEND_URL" >> $GITHUB_ENV
       - name: Build frontend
         run: |
@@ -256,17 +256,17 @@ jobs:
           npm run build
       - name: Sync to GCS
         run: |
-          gcloud storage rsync dist/ gs://momaverse-frontend \
-            --recursive --delete-unmatched-destination-objects --project=momaverse
+          gcloud storage rsync dist/ gs://fomoccs-frontend \
+            --recursive --delete-unmatched-destination-objects --project=fomoccs
       - name: Set cache headers
         run: |
-          gcloud storage objects update "gs://momaverse-frontend/**/*.html" \
-            --cache-control="no-cache" --project=momaverse 2>/dev/null || true
-          gcloud storage objects update "gs://momaverse-frontend/*.html" \
-            --cache-control="no-cache" --project=momaverse 2>/dev/null || true
+          gcloud storage objects update "gs://fomoccs-frontend/**/*.html" \
+            --cache-control="no-cache" --project=fomoccs 2>/dev/null || true
+          gcloud storage objects update "gs://fomoccs-frontend/*.html" \
+            --cache-control="no-cache" --project=fomoccs 2>/dev/null || true
           for ext in js css; do
-            gcloud storage objects update "gs://momaverse-frontend/**/*.${ext}" \
-              --cache-control="public, max-age=31536000, immutable" --project=momaverse 2>/dev/null || true
-            gcloud storage objects update "gs://momaverse-frontend/*.${ext}" \
-              --cache-control="public, max-age=31536000, immutable" --project=momaverse 2>/dev/null || true
+            gcloud storage objects update "gs://fomoccs-frontend/**/*.${ext}" \
+              --cache-control="public, max-age=31536000, immutable" --project=fomoccs 2>/dev/null || true
+            gcloud storage objects update "gs://fomoccs-frontend/*.${ext}" \
+              --cache-control="public, max-age=31536000, immutable" --project=fomoccs 2>/dev/null || true
           done

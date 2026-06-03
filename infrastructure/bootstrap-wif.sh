@@ -11,17 +11,17 @@
 # Usage: ./bootstrap-wif.sh
 #
 # After terraform apply creates the frontend bucket, run:
-#   gsutil iam ch "serviceAccount:momaverse-cicd@momaverse.iam.gserviceaccount.com:roles/storage.objectAdmin" \
-#     "gs://momaverse-frontend"
+#   gsutil iam ch "serviceAccount:fomoccs-cicd@fomoccs.iam.gserviceaccount.com:roles/storage.objectAdmin" \
+#     "gs://fomoccs-frontend"
 
 set -euo pipefail
 
-PROJECT_ID="momaverse"
-POOL_ID="momaverse-github-pool"
+PROJECT_ID="fomoccs"
+POOL_ID="fomoccs-github-pool"
 PROVIDER_ID="github"
-SA_NAME="momaverse-cicd"
+SA_NAME="fomoccs-cicd"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-REPO="Anedu91/momaverse"
+REPO="Anedu91/fomoccs"
 
 echo "=== Enabling required APIs ==="
 gcloud services enable iam.googleapis.com --project="${PROJECT_ID}" --quiet
@@ -30,7 +30,7 @@ gcloud services enable iamcredentials.googleapis.com --project="${PROJECT_ID}" -
 echo "=== Creating CI/CD service account ==="
 gcloud iam service-accounts create "${SA_NAME}" \
   --project="${PROJECT_ID}" \
-  --display-name="Momaverse CI/CD (GitHub Actions)" 2>/dev/null || echo "  (already exists)"
+  --display-name="Fomoccs CI/CD (GitHub Actions)" 2>/dev/null || echo "  (already exists)"
 
 echo "=== Creating Workload Identity Pool ==="
 gcloud iam workload-identity-pools create "${POOL_ID}" \
@@ -95,4 +95,4 @@ echo "  GCP_PROJECT_ID = ${PROJECT_ID}"
 echo "  GCP_WORKLOAD_IDENTITY_PROVIDER = projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
 echo ""
 echo "After 'terraform apply' creates the frontend bucket, run:"
-echo "  gsutil iam ch \"serviceAccount:${SA_EMAIL}:roles/storage.objectAdmin\" \"gs://momaverse-frontend\""
+echo "  gsutil iam ch \"serviceAccount:${SA_EMAIL}:roles/storage.objectAdmin\" \"gs://fomoccs-frontend\""

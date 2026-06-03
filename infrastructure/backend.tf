@@ -13,7 +13,7 @@ terraform {
   }
 
   backend "gcs" {
-    bucket = "momaverse-terraform-state"
+    bucket = "fomoccs-terraform-state"
     prefix = "terraform/state"
   }
 }

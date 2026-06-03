@@ -1,6 +1,6 @@
 # Deployment
 
-Manual deployment scripts for the Momaverse project on GCP.
+Manual deployment scripts for the Fomoccs project on GCP.
 
 ## Architecture
 
@@ -87,7 +87,7 @@ When run without flags, `deploy.sh` diffs `HEAD~1..HEAD` and maps changed paths 
 Each deploy script prints a rollback command after a successful deploy. Example:
 
 ```
-Rollback: gcloud run services update-traffic momaverse-backend --to-revisions=momaverse-backend-00042-abc=100 --region=us-central1 --project=momaverse
+Rollback: gcloud run services update-traffic fomoccs-backend --to-revisions=fomoccs-backend-00042-abc=100 --region=us-central1 --project=fomoccs
 ```
 
 For frontend, re-run the deploy from a previous commit:
@@ -102,9 +102,9 @@ git checkout <previous-sha>
 The pipeline and backend are connected through Redis as a Celery broker:
 
 ```
-Pipeline Cloud Run Job (momaverse-pipeline)
+Pipeline Cloud Run Job (fomoccs-pipeline)
   → publishes backend.process_crawl_job tasks to Redis via REDIS_URL
-  → Backend worker Cloud Run Service (momaverse-backend-worker)
+  → Backend worker Cloud Run Service (fomoccs-backend-worker)
       consumes tasks using api.celery_app
 ```
 
@@ -125,10 +125,10 @@ export REDIS_URL="redis://<host>:<port>/0"
 For the worker, re-deploy the previous image SHA:
 
 ```bash
-gcloud run deploy momaverse-backend-worker \
+gcloud run deploy fomoccs-backend-worker \
   --image=<previous-image> \
   --region=us-central1 \
-  --project=momaverse
+  --project=fomoccs
 ```
 
 ## Environment Variables
@@ -137,11 +137,11 @@ These are set by `deploy.sh` and passed to component scripts. Override for stand
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PROJECT_ID` | `momaverse` | GCP project ID |
+| `PROJECT_ID` | `fomoccs` | GCP project ID |
 | `REGION` | `us-central1` | GCP region |
-| `DOCKER_REPO` | `us-central1-docker.pkg.dev/momaverse/momaverse-docker` | Artifact Registry path |
-| `BACKEND_SERVICE` | `momaverse-backend` | Cloud Run service name |
-| `BACKEND_WORKER_SERVICE` | `momaverse-backend-worker` | Cloud Run service name for Celery worker |
-| `PIPELINE_JOB` | `momaverse-pipeline` | Cloud Run job name |
-| `FRONTEND_BUCKET` | `gs://momaverse-frontend` | GCS bucket for frontend |
+| `DOCKER_REPO` | `us-central1-docker.pkg.dev/fomoccs/fomoccs-docker` | Artifact Registry path |
+| `BACKEND_SERVICE` | `fomoccs-backend` | Cloud Run service name |
+| `BACKEND_WORKER_SERVICE` | `fomoccs-backend-worker` | Cloud Run service name for Celery worker |
+| `PIPELINE_JOB` | `fomoccs-pipeline` | Cloud Run job name |
+| `FRONTEND_BUCKET` | `gs://fomoccs-frontend` | GCS bucket for frontend |
 | `REDIS_URL` | *(required)* | Redis broker URL for Celery (no default — must be set) |
