@@ -46,6 +46,8 @@ database/backups/
 # OS files
 .DS_Store
 Thumbs.db
+nul
+NUL
 
 # Terraform
 infrastructure/.terraform/
