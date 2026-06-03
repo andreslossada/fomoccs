@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 
 from api.admin import setup_admin
+from api.config import get_settings
 from api.routers import auth, crawl_jobs, events, feed, locations, sources, tag_rules
 
 app = FastAPI(title="Momaverse API")
@@ -45,6 +46,17 @@ app.include_router(tag_rules.router, prefix="/api/v1")
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/v1/admin/process-crawl-job/{job_id}")
+async def trigger_process_crawl_job(job_id: int, api_key: str):
+    settings = get_settings()
+    if api_key != settings.sync_api_key:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API key")
+    from api.tasks.processing import _process_crawl_job
+    await _process_crawl_job(job_id)
+    return {"status": "ok", "job_id": job_id}
 
 
 # SQLAdmin mounted on /admin — must come before the catch-all static mount
