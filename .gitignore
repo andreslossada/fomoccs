@@ -58,6 +58,10 @@ infrastructure/*.tfstate*
 # Logs
 *.log
 
+# curl cookie jars
+cookies.txt
+**/cookies.txt
+
 # Temporary files
 *.tmp
 *.temp
