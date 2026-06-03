@@ -54,9 +54,65 @@ async def trigger_process_crawl_job(job_id: int, api_key: str):
     if api_key != settings.sync_api_key:
         from fastapi import HTTPException, status
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API key")
+
+    from api.database import AsyncSessionLocal
+    from api.models.crawl import CrawlResult, CrawlContent, ExtractedEvent, CrawlResultStatus
+    from sqlalchemy import select, update
+    import json as json_mod
+
+    # Step 1: Parse crawl_contents JSON and create ExtractedEvent records
+    created = 0
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(CrawlContent, CrawlResult.crawl_job_id, CrawlResult.source_id)
+            .join(CrawlResult, CrawlContent.crawl_result_id == CrawlResult.id)
+            .where(
+                CrawlResult.crawl_job_id == job_id,
+                CrawlResult.status == CrawlResultStatus.extracted,
+                CrawlContent.extracted_content.isnot(None),
+            )
+        )
+        result = await session.execute(stmt)
+        rows = result.all()
+
+        for cc, cj_id, source_id in rows:
+            if not cc.extracted_content:
+                continue
+            try:
+                parsed = json_mod.loads(cc.extracted_content)
+                events = parsed.get("events", []) if isinstance(parsed, dict) else []
+                if isinstance(parsed, list):
+                    events = parsed
+                for evt in events:
+                    ee = ExtractedEvent(
+                        crawl_result_id=cc.crawl_result_id,
+                        name=str(evt.get("name", ""))[:500],
+                        location_name=str(evt.get("location", evt.get("location_name", "")) or "")[:255],
+                        sublocation=str(evt.get("sublocation", "") or "")[:255],
+                        description=str(evt.get("description", "") or ""),
+                        url=str(evt.get("url", "") or "")[:2000],
+                        occurrences=json_mod.dumps(evt.get("occurrences", [])),
+                        tags=json_mod.dumps(evt.get("tags", evt.get("hashtags", [])) or []),
+                        emoji=str(evt.get("emoji", "") or ""),
+                    )
+                    session.add(ee)
+                    created += 1
+                # Mark crawl_result as having extracted events ready
+                stmt_update = (
+                    update(CrawlResult)
+                    .where(CrawlResult.id == cc.crawl_result_id)
+                    .values(status=CrawlResultStatus.extracted)
+                )
+                await session.execute(stmt_update)
+            except Exception as e:
+                print(f"Error parsing content for crawl_result {cc.crawl_result_id}: {e}")
+        
+        await session.commit()
+
+    # Step 2: Process the extracted events
     from api.tasks.processing import _process_crawl_job
     await _process_crawl_job(job_id)
-    return {"status": "ok", "job_id": job_id}
+    return {"status": "ok", "job_id": job_id, "extracted_events_created": created}
 
 
 # SQLAdmin mounted on /admin — must come before the catch-all static mount
