@@ -352,7 +352,10 @@ async def run_pipeline(source_ids=None, limit=None):
         if job_tracker.api_calls > 0:
             db.save_crawl_summary(cursor, crawl_job_id, job_tracker)
         db.complete_crawl_job(cursor, connection, crawl_job_id)
-        task_id = publish_process_crawl_job(crawl_job_id)
+        if os.getenv("USE_CELERY", "").lower() == "true":
+            task_id = publish_process_crawl_job(crawl_job_id)
+        else:
+            print("Skipping Celery handoff (USE_CELERY not set)")
 
         print(f"{'=' * 60}")
         print("PIPELINE COMPLETED SUCCESSFULLY")
