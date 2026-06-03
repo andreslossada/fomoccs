@@ -157,3 +157,5 @@ mobile/android/**/lint-results*
 /.agents
 /.planning
 skills-lock.json
+.vercel
+supabase/.temp/
