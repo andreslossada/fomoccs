@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 
@@ -356,6 +357,21 @@ async def run_pipeline(source_ids=None, limit=None):
         if os.getenv("USE_CELERY", "").lower() == "true":
             task_id = publish_process_crawl_job(crawl_job_id)
             print(f"  - task_id: {task_id}")
+        elif os.getenv("API_BASE_URL"):
+            # Call backend processing endpoint directly (no Celery needed)
+            base = os.getenv("API_BASE_URL", "").rstrip("/")
+            api_key = os.getenv("SYNC_API_KEY", "changeme")
+            url = f"{base}/api/v1/admin/process-crawl-job/{crawl_job_id}?api_key={api_key}"
+            print(f"Calling processing endpoint: {url}")
+            try:
+                import urllib.request
+                req = urllib.request.Request(url, data=b"", method="POST")
+                req.add_header("Content-Length", "0")
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    body = json.loads(resp.read().decode())
+                    print(f"Processing result: {body}")
+            except Exception as e:
+                print(f"Warning: Processing endpoint call failed: {e}")
         else:
             print("Skipping Celery handoff (USE_CELERY not set)")
 
