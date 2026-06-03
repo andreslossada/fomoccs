@@ -9,8 +9,9 @@ class Settings(BaseSettings):
 
     environment: str = "local"
 
-    db_host: str = "localhost"
-    db_name: str = "momaverse"
+    db_host: str = "aws-1-sa-east-1.pooler.supabase.com"
+    db_port: int = 5432
+    db_name: str = "postgres"
     db_user: str = ""
     db_pass: str = ""
 
@@ -28,7 +29,7 @@ class Settings(BaseSettings):
         userinfo = self.db_user
         if self.db_pass:
             userinfo = f"{self.db_user}:{self.db_pass}"
-        return f"postgresql+asyncpg://{userinfo}@{self.db_host}/{self.db_name}"
+        return f"postgresql+asyncpg://{userinfo}@{self.db_host}:{self.db_port}/{self.db_name}"
 
 
 @lru_cache
