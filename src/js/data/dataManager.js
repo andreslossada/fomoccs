@@ -25,7 +25,7 @@ const DataManager = (() => {
      * @returns {Promise<Object>} The parsed JSON data
      * @throws {Error} Network, timeout, or parsing errors with user-friendly messages
      */
-    async function fetchData(url, timeout = 10000) {
+    async function fetchData(url, timeout = 30000) {
         try {
             // Create an AbortController for timeout handling
             const controller = new AbortController();
