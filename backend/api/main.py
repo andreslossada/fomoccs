@@ -11,7 +11,7 @@ from api.admin import setup_admin
 from api.config import get_settings
 from api.routers import auth, crawl_jobs, events, feed, locations, sources, tag_rules
 
-app = FastAPI(title="Momaverse API")
+app = FastAPI(title="FomoCCS API")
 
 
 @app.exception_handler(IntegrityError)

@@ -1,4 +1,4 @@
-"""SQLAdmin ModelAdmin views for all Momaverse models."""
+"""SQLAdmin ModelAdmin views for all FomoCCS models."""
 
 from sqladmin import ModelView
 from sqlalchemy import Select, func, select

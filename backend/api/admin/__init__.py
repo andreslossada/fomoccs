@@ -1,4 +1,4 @@
-"""SQLAdmin setup for the Momaverse admin panel."""
+"""SQLAdmin setup for the FomoCCS admin panel."""
 
 from fastapi import FastAPI
 from sqladmin import Admin
@@ -23,7 +23,7 @@ def setup_admin(app: FastAPI) -> Admin:
     admin = Admin(
         app,
         engine,
-        title="Momaverse Admin",
+        title="FomoCCS Admin",
         authentication_backend=authentication_backend,
     )
 
