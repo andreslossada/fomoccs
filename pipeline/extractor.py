@@ -1000,7 +1000,7 @@ async def extract_events(
             )
         else:
             print(
-                f"    - Extracting events using {OPENROUTER_MODEL} ({len(content_to_process)} chars)..."
+                f"    - Extracting events using {GEMINI_MODEL} ({len(content_to_process)} chars)..."
             )
 
     try:

@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import asyncio
+import os
 import sys
 
 from dotenv import load_dotenv
@@ -354,6 +355,7 @@ async def run_pipeline(source_ids=None, limit=None):
         db.complete_crawl_job(cursor, connection, crawl_job_id)
         if os.getenv("USE_CELERY", "").lower() == "true":
             task_id = publish_process_crawl_job(crawl_job_id)
+            print(f"  - task_id: {task_id}")
         else:
             print("Skipping Celery handoff (USE_CELERY not set)")
 
@@ -367,7 +369,6 @@ async def run_pipeline(source_ids=None, limit=None):
             print(f"  - Resumed extractions: {len(incomplete_crawled)}")
         print(f"  - Events extracted: {len(extracted_results)}")
         print(f"  - crawl_job_id: {crawl_job_id}")
-        print(f"  - task_id: {task_id}")
 
         if job_tracker.api_calls > 0:
             print(f"\n{'=' * 60}")
