@@ -66,7 +66,7 @@ async def geocode_location_name(
     address: str | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> GeocodingResult | None:
-    """Forward-geocode a venue name via Geoapify, biased to Buenos Aires.
+    """Forward-geocode a venue name via Geoapify, biased to Caracas.
 
     Returns None if no result found, API call fails, or result is outside Caracas.
     If *client* is provided it will be reused; otherwise a new one is created.

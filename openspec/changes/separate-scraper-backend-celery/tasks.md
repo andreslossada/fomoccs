@@ -10,8 +10,8 @@
 ## 2. Geocoding Worker
 
 - [ ] 2.1 Create `backend/api/tasks/geocoding.py` — define `geocode_location(location_id)` Celery task on `geocoding` queue
-- [ ] 2.2 Task implementation: fetch location by ID (SQLAlchemy), call existing `geocode_location_name()` from `backend/api/services/geocoding.py`, update lat/lng if within BA bounds
-- [ ] 2.3 Handle edge cases: no Geoapify results (complete without retry), result outside BA (discard coords), API error (retry with backoff)
+- [ ] 2.2 Task implementation: fetch location by ID (SQLAlchemy), call existing `geocode_location_name()` from `backend/api/services/geocoding.py`, update lat/lng if within Caracas bounds
+- [ ] 2.3 Handle edge cases: no Geoapify results (complete without retry), result outside Caracas (discard coords), API error (retry with backoff)
 - [ ] 2.4 Wire geocoding task into location creation — when a new location is created without coords, queue `geocode_location` task instead of inline geocoding
 - [ ] 2.5 Test: create location without coords, verify geocoding task runs async and updates coords
 

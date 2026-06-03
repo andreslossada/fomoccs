@@ -6,17 +6,17 @@ The system SHALL define a Celery task `geocode_location(location_id)` that geoco
 #### Scenario: Successful geocoding
 - **WHEN** the `geocode_location` task receives a `location_id`
 - **THEN** it fetches the location's name from the database
-- **THEN** it calls the Geoapify API with Buenos Aires bias
+- **THEN** it calls the Geoapify API with Caracas bias
 - **THEN** it updates the location's `lat` and `lng` fields
-- **THEN** it validates the result is within Buenos Aires bounds
+- **THEN** it validates the result is within Caracas bounds
 
 #### Scenario: Geocoding returns no results
 - **WHEN** Geoapify returns no results for a location name
 - **THEN** the location's coordinates remain null
 - **THEN** the task completes successfully (no retry)
 
-#### Scenario: Geocoding result outside Buenos Aires
-- **WHEN** Geoapify returns coordinates outside the BA bounding box
+#### Scenario: Geocoding result outside Caracas
+- **WHEN** Geoapify returns coordinates outside the Caracas bounding box
 - **THEN** the coordinates are discarded (not saved)
 - **THEN** the task completes successfully
 
@@ -33,7 +33,7 @@ The `geocode_location` task MUST NOT block event processing. It runs on a separa
 - **THEN** geocoding runs asynchronously and updates coordinates later
 
 ### Requirement: Reuse existing geocoding service
-The geocoding task SHALL reuse the existing `backend/api/services/geocoding.py` module (Geoapify client, BA bounds validation, haversine distance).
+The geocoding task SHALL reuse the existing `backend/api/services/geocoding.py` module (Geoapify client, Caracas bounds validation, haversine distance).
 
 #### Scenario: Geocoding task calls existing service
 - **WHEN** the `geocode_location` task runs

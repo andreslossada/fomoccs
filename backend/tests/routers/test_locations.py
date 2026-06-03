@@ -625,7 +625,7 @@ class TestSoftDeleteLocation:
 # ---------------------------------------------------------------------------
 
 _MOCK_GEO_RESULT = GeocodingResult(
-    lat=-34.6037, lng=-58.3816, formatted_address="Obelisco, BA", confidence=0.9
+    lat=10.5069, lng=-66.9147, formatted_address="Plaza Bolívar, Caracas", confidence=0.9
 )
 
 
@@ -657,13 +657,13 @@ class TestBulkCreateLocations:
         assert len(body["results"]) == 2
         for item in body["results"]:
             assert item["status"] == "created"
-            assert item["location"]["lat"] == pytest.approx(-34.6037)
+            assert item["location"]["lat"] == pytest.approx(10.5069)
 
     @pytest.mark.asyncio
     async def test_bulk_create_with_existing_coords(
         self, client: AsyncClient, auth_headers: dict[str, str]
     ) -> None:
-        payload = {"locations": [{"name": "With Coords", "lat": -34.60, "lng": -58.38}]}
+        payload = {"locations": [{"name": "With Coords", "lat": 10.48, "lng": -66.90}]}
         mock_geocode = AsyncMock(return_value=_MOCK_GEO_RESULT)
         with patch("api.routers.locations.geocode_location_name", mock_geocode):
             resp = await client.post(
@@ -672,7 +672,7 @@ class TestBulkCreateLocations:
 
         assert resp.status_code == 201
         body = resp.json()
-        assert body["results"][0]["location"]["lat"] == pytest.approx(-34.60)
+        assert body["results"][0]["location"]["lat"] == pytest.approx(10.48)
         # Should not have called geocode since coords were provided
         mock_geocode.assert_not_called()
 
@@ -752,8 +752,8 @@ class TestGeocodeLocation:
         assert resp.status_code == 200
         body = resp.json()
         assert body["geocoded"] is True
-        assert body["lat"] == pytest.approx(-34.6037)
-        assert body["lng"] == pytest.approx(-58.3816)
+        assert body["lat"] == pytest.approx(10.5069)
+        assert body["lng"] == pytest.approx(-66.9147)
 
     @pytest.mark.asyncio
     async def test_geocode_already_has_coords(
@@ -789,7 +789,7 @@ class TestGeocodeLocation:
         assert resp.status_code == 200
         body = resp.json()
         assert body["geocoded"] is True
-        assert body["lat"] == pytest.approx(-34.6037)
+        assert body["lat"] == pytest.approx(10.5069)
         mock_geocode.assert_called_once()
 
     @pytest.mark.asyncio
@@ -848,7 +848,7 @@ class TestBackfillGeocode:
         admin_headers: dict[str, str],
     ) -> None:
         loc_no_coords = Location(name="Missing Coords")
-        loc_with_coords = Location(name="Has Coords", lat=-34.60, lng=-58.38)
+        loc_with_coords = Location(name="Has Coords", lat=10.48, lng=-66.90)
         db_session.add_all([loc_no_coords, loc_with_coords])
         await db_session.flush()
 
@@ -874,7 +874,7 @@ class TestBackfillGeocode:
         db_session: AsyncSession,
         admin_headers: dict[str, str],
     ) -> None:
-        loc = Location(name="Complete", lat=-34.60, lng=-58.38)
+        loc = Location(name="Complete", lat=10.48, lng=-66.90)
         db_session.add(loc)
         await db_session.flush()
 

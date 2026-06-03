@@ -98,9 +98,9 @@ def _make_event(
     if lugares is None:
         lugares = {
             "100": {
-                "nombre": "Teatro San Martin",
-                "direccion": "Av. Corrientes 1530",
-                "zona": "CABA",
+                "nombre": "Teatro Teresa Carreño",
+                "direccion": "Av. Urdaneta 1530",
+                "zona": "Caracas",
                 "funciones": {
                     "200": {
                         "dia": "Viernes",

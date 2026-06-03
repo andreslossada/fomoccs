@@ -13,7 +13,7 @@ from api.tasks.geocoding import _geocode_location
 
 @pytest.fixture
 def sample_location_no_coords(db_session: AsyncSession) -> Location:
-    loc = Location(name="Test Venue", address="Av. Corrientes 1234", lat=None, lng=None)
+    loc = Location(name="Test Venue", address="Av. Urdaneta 1234", lat=None, lng=None)
     db_session.add(loc)
     return loc
 
@@ -21,16 +21,16 @@ def sample_location_no_coords(db_session: AsyncSession) -> Location:
 @pytest.fixture
 def sample_location_with_coords(db_session: AsyncSession) -> Location:
     loc = Location(
-        name="Known Venue", address="Calle Falsa 123", lat=-34.61, lng=-58.44
+        name="Known Venue", address="Calle Real 123", lat=10.48, lng=-66.90
     )
     db_session.add(loc)
     return loc
 
 
 GEO_RESULT = GeocodingResult(
-    lat=-34.6037,
-    lng=-58.3816,
-    formatted_address="Obelisco, Buenos Aires",
+    lat=10.5069,
+    lng=-66.9147,
+    formatted_address="Plaza Bolívar, Caracas",
     confidence=0.9,
 )
 
@@ -61,13 +61,13 @@ class TestGeocodeLocationTask:
             await _geocode_location(loc_id)
 
         mock_geocode.assert_called_once_with(
-            "Test Venue", "fake-key", address="Av. Corrientes 1234"
+            "Test Venue", "fake-key", address="Av. Urdaneta 1234"
         )
 
         loc = await db_session.get(Location, loc_id)
         assert loc is not None
-        assert loc.lat == pytest.approx(-34.6037)
-        assert loc.lng == pytest.approx(-58.3816)
+        assert loc.lat == pytest.approx(10.5069)
+        assert loc.lng == pytest.approx(-66.9147)
 
     @pytest.mark.asyncio
     async def test_skips_when_coords_already_set(
