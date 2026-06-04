@@ -12,8 +12,11 @@ Provider chain (in priority order):
 3. OpenRouter free model (env-configurable, separate provider)
 4. xAI Grok (env-configurable, separate provider)
 
-When a provider hits 429, we mark it exhausted and try the next. If all fail,
-we raise AllProvidersExhausted and the job will be retried later.
+When a provider hits 429 or 413 (TPM exceeded), we mark it exhausted and
+try the next. 429 = requests/minute or tokens/day, 413 = tokens/minute for
+Groq-style providers. Both are recoverable with a short backoff. If all
+providers fail, we raise AllProvidersExhausted and the job will be retried
+later.
 """
 
 import asyncio
@@ -84,7 +87,9 @@ def _detect_cooldown_seconds(error: Exception) -> int:
     Strategy:
     1. If the SDK exposed a Retry-After header, use it (capped at 1h).
     2. Otherwise, parse the message for Google-style quota IDs.
-    3. Fall back to a safe 60s default.
+    3. Groq TPM errors (413 with 'tokens per minute') get 60s — the per-minute
+       quota resets after a minute.
+    4. Fall back to a safe 60s default.
     """
     headers = getattr(error, "headers", None) or {}
     if hasattr(headers, "get"):
@@ -98,7 +103,12 @@ def _detect_cooldown_seconds(error: Exception) -> int:
     msg = str(error)
     if "PerDay" in msg or "per day" in msg.lower() or "RPD" in msg:
         return 3600  # daily quota — wait an hour and try again
-    if "PerMinute" in msg or "RPM" in msg:
+    if (
+        "PerMinute" in msg
+        or "RPM" in msg
+        or "tokens per minute" in msg.lower()
+        or "TPM" in msg
+    ):
         return 60
     return 60
 
@@ -268,17 +278,26 @@ async def _call_with_fallback(
             )
             last_error = e
             continue
-        except openai.APIStatusError as e:
-            if getattr(e, "status_code", None) == 429:
+        except openai.BadRequestError as e:
+            # 413 (TPM exceeded) from Groq-style providers comes through as a
+            # BadRequestError, not a RateLimitError. Treat it the same way:
+            # cooldown the provider and move to the next one.
+            if getattr(e, "status_code", None) == 413:
                 cooldown = _detect_cooldown_seconds(e)
                 provider.exhausted_until = time.time() + cooldown
                 provider.total_rate_limited += 1
                 print(
-                    f"    - {provider.label} 429 → cooldown {cooldown}s "
+                    f"    - {provider.label} 413 → cooldown {cooldown}s "
                     f"(attempt {label})"
                 )
                 last_error = e
                 continue
+            provider.total_errors += 1
+            raise
+        except openai.APIStatusError as e:
+            # RateLimitError (429) and BadRequestError with 413 are caught by
+            # the more specific handlers above. Anything else here is a real
+            # error (auth, bad prompt, server fault) — propagate.
             provider.total_errors += 1
             raise
         except (openai.APITimeoutError, asyncio.TimeoutError) as e:
