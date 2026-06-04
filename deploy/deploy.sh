@@ -19,8 +19,13 @@ export BACKEND_WORKER_SERVICE="${BACKEND_WORKER_SERVICE:-fomoccs-backend-worker}
 export PIPELINE_JOB="fomoccs-pipeline"
 export FRONTEND_BUCKET="gs://fomoccs-frontend"
 
-# === Required Env Vars ===
-: "${REDIS_URL:?REDIS_URL must be set — required by pipeline (publish) and backend worker (consume)}"
+# === Optional Env Vars ===
+# REDIS_URL is required only for pipeline (publish) and backend worker (consume).
+# Backend API works without it (uses default redis://localhost:6379/0 in config).
+if [[ -z "${REDIS_URL:-}" ]]; then
+  echo "Note: REDIS_URL not set — pipeline and worker deploys will be skipped."
+  echo "      To enable those, set REDIS_URL (e.g., redis://host:6379/0)."
+fi
 export REDIS_URL
 
 # === Pre-flight Checks ===
