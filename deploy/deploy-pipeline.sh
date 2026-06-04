@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Use exported env vars from deploy.sh, or set defaults for standalone use
-: "${PROJECT_ID:=fomoccs}"
-: "${DOCKER_REPO:=us-central1-docker.pkg.dev/fomoccs/fomoccs-docker}"
+: "${PROJECT_ID:=fomoccs-caracas}"
+: "${DOCKER_REPO:=us-central1-docker.pkg.dev/fomoccs-caracas/fomoccs-docker}"
 : "${PIPELINE_JOB:=fomoccs-pipeline}"
 : "${REGION:=us-central1}"
 : "${REDIS_URL:?REDIS_URL must be set — pipeline publishes Celery tasks to this broker}"

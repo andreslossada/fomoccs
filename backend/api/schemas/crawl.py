@@ -36,6 +36,8 @@ class CrawlSummaryResponse(BaseModel):
     thinking_tokens: int
     estimated_cost: Decimal
     created_at: datetime
+    providers_used: dict[str, int] | None = None
+    rate_limited_count: int = 0
 
 
 class CrawlContentResponse(BaseModel):
@@ -112,6 +114,10 @@ class CrawlResultResponse(BaseModel):
     processed_at: datetime | None = None
     error_message: str | None = None
     created_at: datetime
+    extraction_provider: str | None = None
+    extraction_model: str | None = None
+    extraction_attempts: int = 0
+    extraction_fallbacks: int = 0
 
 
 class CrawlResultDetailResponse(CrawlResultResponse):

@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-PROJECT_ID="fomoccs"
+PROJECT_ID="${PROJECT_ID:-fomoccs-caracas}"
 POOL_ID="fomoccs-github-pool"
 PROVIDER_ID="github"
 SA_NAME="fomoccs-cicd"

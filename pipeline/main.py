@@ -130,7 +130,8 @@ async def run_pipeline(source_ids=None, limit=None):
         print(f"{'=' * 60}")
 
         # Number of concurrent workers for crawling and extraction
-        num_workers = 6
+        # Reduced from 6 to 1 to respect Gemini free tier rate limit (5 RPM)
+        num_workers = 1
 
         crawl_results = []
         extracted_results = []
@@ -352,6 +353,13 @@ async def run_pipeline(source_ids=None, limit=None):
 
         # Save token usage summary, mark crawl job complete, publish to backend
         if job_tracker.api_calls > 0:
+            # Aggregate rate-limit count from the live provider chain so we
+            # can see how many calls hit 429 across the whole run.
+            from extractor import PROVIDER_CHAIN
+
+            total_rate_limited = sum(p.total_rate_limited for p in PROVIDER_CHAIN)
+            if total_rate_limited:
+                job_tracker._rate_limited_total = total_rate_limited
             db.save_crawl_summary(cursor, crawl_job_id, job_tracker)
         db.complete_crawl_job(cursor, connection, crawl_job_id)
         if os.getenv("USE_CELERY", "").lower() == "true":

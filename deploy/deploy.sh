@@ -11,9 +11,9 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 #   → backend API (Cloud Run Service: fomoccs-backend) serves HTTP traffic
 
 # === Shared Constants ===
-export PROJECT_ID="fomoccs"
+export PROJECT_ID="fomoccs-caracas"
 export REGION="us-central1"
-export DOCKER_REPO="us-central1-docker.pkg.dev/fomoccs/fomoccs-docker"
+export DOCKER_REPO="us-central1-docker.pkg.dev/fomoccs-caracas/fomoccs-docker"
 export BACKEND_SERVICE="fomoccs-backend"
 export BACKEND_WORKER_SERVICE="${BACKEND_WORKER_SERVICE:-fomoccs-backend-worker}"
 export PIPELINE_JOB="fomoccs-pipeline"

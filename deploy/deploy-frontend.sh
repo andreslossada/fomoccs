@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Use exported env vars from deploy.sh, or set defaults for standalone use
-: "${PROJECT_ID:=fomoccs}"
+: "${PROJECT_ID:=fomoccs-caracas}"
 : "${BACKEND_SERVICE:=fomoccs-backend}"
 : "${REGION:=us-central1}"
 : "${FRONTEND_BUCKET:=gs://fomoccs-frontend}"

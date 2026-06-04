@@ -339,10 +339,12 @@ def save_crawl_summary(cursor, crawl_job_id, tracker):
 
     Does not commit — caller is responsible for committing the transaction.
     """
+    rate_limited = getattr(tracker, "_rate_limited_total", 0)
     cursor.execute(
         """INSERT INTO crawl_summaries
-            (crawl_job_id, api_calls, input_tokens, output_tokens, thinking_tokens, estimated_cost)
-        VALUES (%s, %s, %s, %s, %s, %s)""",
+            (crawl_job_id, api_calls, input_tokens, output_tokens, thinking_tokens,
+             estimated_cost, providers_used, rate_limited_count)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
         (
             crawl_job_id,
             tracker.api_calls,
@@ -350,8 +352,53 @@ def save_crawl_summary(cursor, crawl_job_id, tracker):
             tracker.output_tokens,
             tracker.thinking_tokens,
             round(tracker.total_cost, 6),
+            json.dumps(tracker.provider_calls) if tracker.provider_calls else None,
+            rate_limited,
         ),
     )
+
+
+def update_crawl_result_provider(
+    cursor, connection, crawl_result_id, provider, attempts, fallbacks
+):
+    """Record which LLM provider served a crawl result.
+
+    Stores the primary (most-used) provider label, the model used, total
+    attempts across the chain, and the number of times we fell back to a
+    different provider.
+
+    Does not commit — caller is responsible for committing the transaction.
+    """
+    if not provider:
+        return
+    primary_label = max(provider, key=provider.get)
+    cursor.execute(
+        """UPDATE crawl_results
+           SET extraction_provider = %s,
+               extraction_model = %s,
+               extraction_attempts = %s,
+               extraction_fallbacks = %s
+           WHERE id = %s""",
+        (
+            primary_label,
+            _model_for_label(primary_label),
+            attempts,
+            fallbacks,
+            crawl_result_id,
+        ),
+    )
+
+
+def _model_for_label(label: str) -> str | None:
+    """Look up the model string for a provider label from the live chain."""
+    try:
+        from extractor import PROVIDER_CHAIN
+    except Exception:
+        return None
+    for p in PROVIDER_CHAIN:
+        if p.label == label:
+            return p.model
+    return None
 
 
 def get_incomplete_crawl_results(cursor):

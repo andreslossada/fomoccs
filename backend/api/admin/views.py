@@ -103,7 +103,16 @@ class CrawlResultAdmin(ModelView, model=CrawlResult):
     name = "Crawl Result"
     name_plural = "Crawl Results"
     icon = "fa-solid fa-file-lines"
-    column_list = ["id", "source_id", "crawl_job_id", "status"]
+    column_list = [
+        "id",
+        "source_id",
+        "crawl_job_id",
+        "status",
+        "extraction_provider",
+        "extraction_model",
+        "extraction_attempts",
+        "extraction_fallbacks",
+    ]
 
 
 class CrawlContentAdmin(ModelView, model=CrawlContent):

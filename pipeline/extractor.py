@@ -1,10 +1,19 @@
 """
-Event extraction module using Gemini AI with Structured Outputs.
+Event extraction module using a multi-provider LLM chain with Structured Outputs.
 
 Extracts structured event data from crawled website content using JSON schema.
 Uses a two-pass approach for large pages (>50 expected events):
 1. First pass: Extract core data (name, location, dates, url) with simplified schema
 2. Second pass: Enrich events with descriptions, hashtags, and emoji in batches
+
+Provider chain (in priority order):
+1. Gemini 2.5 Flash (best quality, 5 RPM / 20 RPD free)
+2. Gemini 2.5 Flash-Lite (same key, 1,500 RPD = 75x more quota)
+3. OpenRouter free model (env-configurable, separate provider)
+4. xAI Grok (env-configurable, separate provider)
+
+When a provider hits 429, we mark it exhausted and try the next. If all fail,
+we raise AllProvidersExhausted and the job will be retried later.
 """
 
 import asyncio
@@ -12,6 +21,7 @@ import base64
 import json
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
@@ -27,15 +37,295 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
+# =============================================================================
+# Provider Chain
+# =============================================================================
+
+
+class AllProvidersExhausted(Exception):
+    """Raised when every provider in the chain has been rate-limited."""
+
+
+@dataclass
+class ProviderConfig:
+    """A single LLM provider in the fallback chain.
+
+    Each provider has its own OpenAI-compatible client (which may point at
+    Google's Gemini endpoint, OpenRouter, xAI, etc.), its own model name, and
+    its own rate-limit state.
+    """
+
+    label: str
+    client: openai.AsyncOpenAI
+    model: str
+    rpm: int  # requests per minute (for local pacing)
+    delay: float  # seconds between calls (>= 60 / rpm)
+    input_price_per_token: float = 0.0
+    output_price_per_token: float = 0.0
+    enabled: bool = True
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    last_call: float = 0.0
+    exhausted_until: float = 0.0
+    total_calls: int = 0
+    total_rate_limited: int = 0
+    total_errors: int = 0
+
+    def to_stats(self) -> dict[str, int]:
+        return {
+            "calls": self.total_calls,
+            "rate_limited": self.total_rate_limited,
+            "errors": self.total_errors,
+        }
+
+
+def _detect_cooldown_seconds(error: Exception) -> int:
+    """Inspect a rate-limit error and return how long to back off.
+
+    Strategy:
+    1. If the SDK exposed a Retry-After header, use it (capped at 1h).
+    2. Otherwise, parse the message for Google-style quota IDs.
+    3. Fall back to a safe 60s default.
+    """
+    headers = getattr(error, "headers", None) or {}
+    if hasattr(headers, "get"):
+        retry_after = headers.get("retry-after") or headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(int(retry_after), 3600)
+            except (TypeError, ValueError):
+                pass
+
+    msg = str(error)
+    if "PerDay" in msg or "per day" in msg.lower() or "RPD" in msg:
+        return 3600  # daily quota — wait an hour and try again
+    if "PerMinute" in msg or "RPM" in msg:
+        return 60
+    return 60
+
+
+def _build_provider_chain() -> list[ProviderConfig]:
+    """Construct the ordered fallback chain from environment variables."""
+    chain: list[ProviderConfig] = []
+
+    # --- Gemini (primary) ---
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if gemini_key:
+        gemini_client = openai.AsyncOpenAI(
+            api_key=gemini_key,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+        # Provider 1: gemini-2.5-flash (5 RPM, 20 RPD free)
+        chain.append(
+            ProviderConfig(
+                label="gemini-flash",
+                client=gemini_client,
+                model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+                rpm=5,
+                delay=float(os.environ.get("GEMINI_RATE_LIMIT_DELAY", "13")),
+                input_price_per_token=0.10 / 1_000_000,
+                output_price_per_token=0.40 / 1_000_000,
+            )
+        )
+        # Provider 2: gemini-2.5-flash-lite (higher RPM, 1,500 RPD)
+        chain.append(
+            ProviderConfig(
+                label="gemini-flash-lite",
+                client=gemini_client,
+                model=os.environ.get("GEMINI_MODEL_LITE", "gemini-2.5-flash-lite"),
+                rpm=20,
+                delay=3.5,
+                input_price_per_token=0.10 / 1_000_000,
+                output_price_per_token=0.40 / 1_000_000,
+            )
+        )
+
+    # --- OpenRouter ---
+    openrouter_key = os.environ.get("OPENROUTER_CRAWLER_API_KEY", "")
+    if openrouter_key:
+        openrouter_client = openai.AsyncOpenAI(
+            api_key=openrouter_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+        chain.append(
+            ProviderConfig(
+                label="openrouter",
+                client=openrouter_client,
+                model=os.environ.get(
+                    "OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"
+                ),
+                rpm=20,
+                delay=3.5,
+            )
+        )
+
+    # --- Groq (https://console.groq.com) ---
+    # Very fast inference, 14,400 RPD on free tier. Llama 3.3 70B is the
+    # closest in quality to Gemini Flash. Inserted before xAI Grok because
+    # Groq is faster and has a more generous free tier.
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if groq_key:
+        groq_client = openai.AsyncOpenAI(
+            api_key=groq_key,
+            base_url="https://api.groq.com/openai/v1",
+        )
+        chain.append(
+            ProviderConfig(
+                label="groq",
+                client=groq_client,
+                model=os.environ.get(
+                    "GROQ_MODEL", "llama-3.3-70b-versatile"
+                ),
+                rpm=30,
+                delay=2.5,
+            )
+        )
+
+    # --- xAI Grok ---
+    xai_key = os.environ.get("XAI_API_KEY", "")
+    if xai_key:
+        xai_client = openai.AsyncOpenAI(
+            api_key=xai_key,
+            base_url="https://api.x.ai/v1",
+        )
+        chain.append(
+            ProviderConfig(
+                label="xai-grok",
+                client=xai_client,
+                model=os.environ.get("XAI_MODEL", "grok-3-mini"),
+                rpm=30,
+                delay=2.5,
+            )
+        )
+
+    if not chain:
+        raise RuntimeError(
+            "No LLM providers configured. Set at least one of: "
+            "GEMINI_API_KEY, OPENROUTER_CRAWLER_API_KEY, XAI_API_KEY"
+        )
+
+    return chain
+
+
+PROVIDER_CHAIN: list[ProviderConfig] = _build_provider_chain()
+
+
+def _print_chain_summary() -> None:
+    """Log the chain order at startup so operators can see what's active."""
+    if not PROVIDER_CHAIN:
+        return
+    print(f"  LLM provider chain ({len(PROVIDER_CHAIN)} providers):")
+    for i, p in enumerate(PROVIDER_CHAIN, 1):
+        print(f"    {i}. {p.label} ({p.model}, rpm={p.rpm})")
+
+
+# =============================================================================
+# Core call function with fallback
+# =============================================================================
+
+
+async def _call_with_fallback(
+    messages: list[dict],
+    *,
+    response_format: dict | None = None,
+    timeout: int = 120,
+    label: str = "",
+) -> tuple[Any, ProviderConfig]:
+    """Call the LLM chain, falling through on rate-limit errors.
+
+    Returns ``(response, provider_that_succeeded)`` so the caller can record
+    which provider/model actually served the request. Raises
+    :class:`AllProvidersExhausted` if every provider was rate-limited.
+    """
+    last_error: Exception | None = None
+    for provider in PROVIDER_CHAIN:
+        if not provider.enabled:
+            continue
+        if provider.exhausted_until > time.time():
+            continue
+        try:
+            async with provider.lock:
+                elapsed = time.time() - provider.last_call
+                if provider.last_call > 0 and elapsed < provider.delay:
+                    await asyncio.sleep(provider.delay - elapsed)
+                kwargs: dict[str, Any] = {
+                    "model": provider.model,
+                    "messages": messages,
+                }
+                if response_format is not None:
+                    kwargs["response_format"] = response_format
+                coro = provider.client.chat.completions.create(**kwargs)
+                response = await asyncio.wait_for(coro, timeout=timeout)
+                provider.last_call = time.time()
+                provider.total_calls += 1
+                return response, provider
+        except openai.RateLimitError as e:
+            cooldown = _detect_cooldown_seconds(e)
+            provider.exhausted_until = time.time() + cooldown
+            provider.total_rate_limited += 1
+            print(
+                f"    - {provider.label} 429 → cooldown {cooldown}s "
+                f"(attempt {label})"
+            )
+            last_error = e
+            continue
+        except openai.APIStatusError as e:
+            if getattr(e, "status_code", None) == 429:
+                cooldown = _detect_cooldown_seconds(e)
+                provider.exhausted_until = time.time() + cooldown
+                provider.total_rate_limited += 1
+                print(
+                    f"    - {provider.label} 429 → cooldown {cooldown}s "
+                    f"(attempt {label})"
+                )
+                last_error = e
+                continue
+            provider.total_errors += 1
+            raise
+        except (openai.APITimeoutError, asyncio.TimeoutError) as e:
+            # Don't mark provider as exhausted on a single timeout — the next
+            # call may succeed. But don't try again on the same provider either.
+            provider.total_errors += 1
+            print(
+                f"    - {provider.label} timeout after {timeout}s "
+                f"(attempt {label}): {e}"
+            )
+            last_error = e
+            continue
+
+    raise AllProvidersExhausted(
+        f"All {len(PROVIDER_CHAIN)} providers exhausted. Last error: {last_error}"
+    )
+
+
+# =============================================================================
+# Backwards-compat shim (call sites that still pass a coroutine)
+# =============================================================================
+
+
+async def _rate_limited_call(coro):
+    """Deprecated wrapper kept for any callers we missed.
+
+    New code should use :func:`_call_with_fallback` instead.
+    """
+    global _last_api_call
+    async with _api_lock:
+        if _last_api_call > 0:
+            elapsed = asyncio.get_event_loop().time() - _last_api_call
+            if elapsed < GEMINI_RATE_LIMIT_DELAY:
+                await asyncio.sleep(GEMINI_RATE_LIMIT_DELAY - elapsed)
+        result = await coro
+        _last_api_call = asyncio.get_event_loop().time()
+        return result
+
+
+# Legacy globals kept around so any code path that still references them
+# doesn't blow up. The new chain owns rate limiting now.
+_api_lock = asyncio.Lock()
+_last_api_call: float = 0.0
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "120"))
-if not GEMINI_API_KEY:
-    raise RuntimeError("GEMINI_API_KEY env var is required")
-openrouter_client = openai.AsyncOpenAI(
-    api_key=GEMINI_API_KEY,
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-)
+GEMINI_RATE_LIMIT_DELAY = float(os.environ.get("GEMINI_RATE_LIMIT_DELAY", "13"))
 
 
 def _normalize_events_response(parsed):
@@ -61,17 +351,27 @@ PRICE_PER_OUTPUT_TOKEN = 0.40 / 1_000_000  # $0.40 per 1M tokens (includes think
 
 @dataclass
 class TokenTracker:
-    """Accumulates token usage across multiple Gemini API calls."""
+    """Accumulates token usage across multiple LLM API calls.
+
+    Tracks both total token counts and per-provider call counts so we can
+    see which providers handled the load.
+    """
 
     input_tokens: int = 0
     output_tokens: int = 0
     thinking_tokens: int = 0
     api_calls: int = 0
     call_details: list[dict[str, Any]] = field(default_factory=list)
+    provider_calls: dict[str, int] = field(default_factory=dict)
+    fallback_count: int = 0  # how many times we fell through to a different provider
 
-    def track(self, response, label: str = ""):
+    def track(self, response, label: str = "", provider: ProviderConfig | None = None):
         """Extract and accumulate token usage from an OpenAI-style response."""
         self.api_calls += 1
+        if provider is not None:
+            self.provider_calls[provider.label] = (
+                self.provider_calls.get(provider.label, 0) + 1
+            )
         usage = getattr(response, "usage", None)
         if not usage:
             return
@@ -85,11 +385,16 @@ class TokenTracker:
             self.call_details.append(
                 {
                     "label": label,
+                    "provider": provider.label if provider else None,
                     "input": input_t,
                     "output": output_t,
                     "thinking": thinking_t,
                 }
             )
+
+    def record_fallback(self) -> None:
+        """Mark that a request needed to fall through to another provider."""
+        self.fallback_count += 1
 
     @property
     def total_tokens(self):
@@ -97,6 +402,9 @@ class TokenTracker:
 
     @property
     def input_cost(self):
+        # Aggregate cost using gemini-flash pricing as the conservative
+        # baseline; per-provider pricing is not used because some providers
+        # are free and mixing units (free vs paid) would mislead.
         return self.input_tokens * PRICE_PER_INPUT_TOKEN
 
     @property
@@ -113,7 +421,10 @@ class TokenTracker:
         self.output_tokens += other.output_tokens
         self.thinking_tokens += other.thinking_tokens
         self.api_calls += other.api_calls
+        self.fallback_count += other.fallback_count
         self.call_details.extend(other.call_details)
+        for label, count in other.provider_calls.items():
+            self.provider_calls[label] = self.provider_calls.get(label, 0) + count
 
     def summary(self) -> str:
         """Return a formatted summary string."""
@@ -128,6 +439,12 @@ class TokenTracker:
             )
         lines.append(f"  Total tokens:    {self.total_tokens:>10,}")
         lines.append(f"  Estimated cost:  ${self.total_cost:.4f}")
+        if self.provider_calls:
+            lines.append("  Per-provider calls:")
+            for label, count in sorted(self.provider_calls.items()):
+                lines.append(f"    - {label}: {count}")
+        if self.fallback_count:
+            lines.append(f"  Fallback events: {self.fallback_count}")
         return "\n".join(lines)
 
 
@@ -484,16 +801,14 @@ async def extract_with_vision(
                     }
                 )
 
-        response = await asyncio.wait_for(
-            openrouter_client.chat.completions.create(
-                model=GEMINI_MODEL,
-                messages=[{"role": "user", "content": vision_content}],
-                response_format={"type": "json_object"},
-            ),
+        response, provider = await _call_with_fallback(
+            [{"role": "user", "content": vision_content}],
+            response_format={"type": "json_object"},
             timeout=GEMINI_TIMEOUT * 2,  # Double timeout for vision
+            label=f"vision:{name}",
         )
         if tracker:
-            tracker.track(response, label=f"vision:{name}")
+            tracker.track(response, label=f"vision:{name}", provider=provider)
         response_text = response.choices[0].message.content.strip()
 
         # Validate JSON
@@ -695,16 +1010,14 @@ async def enrich_events_batch(event_names, venue_name, tracker=None):
     prompt = get_enrichment_prompt(event_names, venue_name)
 
     try:
-        response = await asyncio.wait_for(
-            openrouter_client.chat.completions.create(
-                model=GEMINI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-            ),
+        response, provider = await _call_with_fallback(
+            [{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
             timeout=GEMINI_TIMEOUT,
+            label=f"enrichment:{venue_name}",
         )
         if tracker:
-            tracker.track(response, label=f"enrichment:{venue_name}")
+            tracker.track(response, label=f"enrichment:{venue_name}", provider=provider)
         result = json.loads(response.choices[0].message.content.strip())
         return {
             item.get("name", ""): {
@@ -738,22 +1051,23 @@ Website content:
 {chunk_content}"""
 
     try:
-        response = await asyncio.wait_for(
-            openrouter_client.chat.completions.create(
-                model=GEMINI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-            ),
+        response, provider = await _call_with_fallback(
+            [{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
             timeout=CHUNK_TIMEOUT,
+            label="chunk",
         )
         if tracker:
-            tracker.track(response, label="chunk")
+            tracker.track(response, label="chunk", provider=provider)
         result = _normalize_events_response(
             json.loads(response.choices[0].message.content.strip())
         )
         return result.get("events", [])
     except TimeoutError:
         print(f"      Chunk timeout after {CHUNK_TIMEOUT}s")
+        return []
+    except AllProvidersExhausted as e:
+        print(f"      Chunk all-providers-exhausted: {e}")
         return []
     except Exception as e:
         print(f"      Chunk error: {e}")
@@ -1033,15 +1347,13 @@ async def extract_events(
                 notes,
                 existing_events,
             )
-            response = await asyncio.wait_for(
-                openrouter_client.chat.completions.create(
-                    model=GEMINI_MODEL,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"},
-                ),
+            response, provider = await _call_with_fallback(
+                [{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
                 timeout=GEMINI_TIMEOUT,
+                label=f"extract:{website_name}",
             )
-            tracker.track(response, label=f"extract:{website_name}")
+            tracker.track(response, label=f"extract:{website_name}", provider=provider)
             response_text = response.choices[0].message.content.strip()
 
         if not response_text or not response_text.strip():
@@ -1063,11 +1375,34 @@ async def extract_events(
         db.update_crawl_result_extracted(
             cursor, connection, crawl_result_id, response_text
         )
-        print(
-            f"    - Extracted {event_count} events with {occurrence_count} occurrences"
-        )
+
+        # Record which provider(s) actually served this call
+        if tracker.provider_calls:
+            providers_used_json = json.dumps(tracker.provider_calls)
+            db.update_crawl_result_provider(
+                cursor,
+                connection,
+                crawl_result_id,
+                provider=tracker.provider_calls,
+                attempts=tracker.api_calls,
+                fallbacks=tracker.fallback_count,
+            )
+            primary = max(tracker.provider_calls, key=tracker.provider_calls.get)
+            print(
+                f"    - Extracted {event_count} events with {occurrence_count} occurrences "
+                f"(provider: {primary}, attempts: {tracker.api_calls}, fallbacks: {tracker.fallback_count})"
+            )
+        else:
+            print(
+                f"    - Extracted {event_count} events with {occurrence_count} occurrences"
+            )
         return True, tracker
 
+    except AllProvidersExhausted as e:
+        error_msg = f"All LLM providers rate-limited: {e}"
+        print(f"    - {error_msg}")
+        db.update_crawl_result_failed(cursor, connection, crawl_result_id, error_msg)
+        return False, tracker
     except Exception as e:
         error_msg = str(e) or type(e).__name__
         print(f"    - Extraction error: {error_msg}")

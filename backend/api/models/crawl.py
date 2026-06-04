@@ -65,6 +65,12 @@ class CrawlResult(Base):
         TIMESTAMP, server_default=func.current_timestamp()
     )
 
+    # LLM provider tracking (multi-model fallback chain)
+    extraction_provider: Mapped[str | None] = mapped_column(String(100))
+    extraction_model: Mapped[str | None] = mapped_column(String(200))
+    extraction_attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    extraction_fallbacks: Mapped[int] = mapped_column(Integer, server_default="0")
+
     # Relationships
     crawl_job: Mapped["CrawlJob"] = relationship(back_populates="results")
     source: Mapped["Source"] = relationship(back_populates="crawl_results")
@@ -190,6 +196,9 @@ class CrawlSummary(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.current_timestamp()
     )
+    # Multi-model fallback tracking
+    providers_used: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    rate_limited_count: Mapped[int] = mapped_column(Integer, server_default="0")
 
     # Relationships
     crawl_job: Mapped["CrawlJob"] = relationship(back_populates="summary")
