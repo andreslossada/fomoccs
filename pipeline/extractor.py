@@ -1415,17 +1415,70 @@ async def extract_events(
             print(
                 f"    - Extracted {event_count} events with {occurrence_count} occurrences"
             )
+        import sys
+        print(
+            json.dumps(
+                {
+                    "event": "source_extracted",
+                    "source_id": source_id,
+                    "crawl_result_id": crawl_result_id,
+                    "events_extracted": event_count,
+                    "occurrences_extracted": occurrence_count,
+                    "primary_provider": (
+                        max(tracker.provider_calls, key=tracker.provider_calls.get)
+                        if tracker.provider_calls
+                        else None
+                    ),
+                    "api_attempts": tracker.api_calls,
+                    "fallback_count": tracker.fallback_count,
+                    "rate_limited": getattr(tracker, "_rate_limited_total", 0),
+                },
+                default=str,
+            ),
+            file=sys.stdout,
+            flush=True,
+        )
         return True, tracker
 
     except AllProvidersExhausted as e:
         error_msg = f"All LLM providers rate-limited: {e}"
         print(f"    - {error_msg}")
         db.update_crawl_result_failed(cursor, connection, crawl_result_id, error_msg)
+        import sys
+        print(
+            json.dumps(
+                {
+                    "event": "source_extract_error",
+                    "source_id": source_id,
+                    "crawl_result_id": crawl_result_id,
+                    "error": error_msg,
+                    "error_type": "AllProvidersExhausted",
+                },
+                default=str,
+            ),
+            file=sys.stdout,
+            flush=True,
+        )
         return False, tracker
     except Exception as e:
         error_msg = str(e) or type(e).__name__
         print(f"    - Extraction error: {error_msg}")
         db.update_crawl_result_failed(
             cursor, connection, crawl_result_id, f"Extraction failed: {error_msg}"
+        )
+        import sys
+        print(
+            json.dumps(
+                {
+                    "event": "source_extract_error",
+                    "source_id": source_id,
+                    "crawl_result_id": crawl_result_id,
+                    "error": error_msg,
+                    "error_type": type(e).__name__,
+                },
+                default=str,
+            ),
+            file=sys.stdout,
+            flush=True,
         )
         return False, tracker

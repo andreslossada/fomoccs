@@ -53,6 +53,11 @@ async def run_pipeline(source_ids=None, limit=None):
 
     cursor = connection.cursor()
 
+    # Per-hostname throttle — shared across all workers in this run so they
+    # coordinate (e.g., 5 concurrent workers won't all hit the same origin
+    # back-to-back). Honors per-source override and tier defaults.
+    throttle = crawler.HostnameThrottle()
+
     try:
         # Check for incomplete crawl results first
         print(f"{'=' * 60}")
@@ -129,9 +134,10 @@ async def run_pipeline(source_ids=None, limit=None):
         print("STEP 2: Crawling Sources")
         print(f"{'=' * 60}")
 
-        # Number of concurrent workers for crawling and extraction
-        # Reduced from 6 to 1 to respect Gemini free tier rate limit (5 RPM)
-        num_workers = 1
+        # Number of concurrent workers per browser batch for crawling and extraction
+        # Tunable via PIPELINE_CONCURRENCY env var. Per-hostname throttling in the
+        # crawler ensures we don't hammer the same origin even with high concurrency.
+        num_workers = int(os.getenv("PIPELINE_CONCURRENCY", "5"))
 
         crawl_results = []
         extracted_results = []
@@ -146,7 +152,7 @@ async def run_pipeline(source_ids=None, limit=None):
                 cur = conn.cursor()
                 try:
                     result_id, _raw_data = await crawler.crawl_json_api(
-                        source, cur, conn, crawl_job_id
+                        source, cur, conn, crawl_job_id, throttle=throttle
                     )
                     if result_id:
                         # JSON API sources are directly mapped to extracted;
@@ -213,7 +219,8 @@ async def run_pipeline(source_ids=None, limit=None):
                         cur = conn.cursor()
                         try:
                             result_id = await crawler.crawl_source(
-                                web_crawler, source, cur, conn, crawl_job_id
+                                web_crawler, source, cur, conn, crawl_job_id,
+                                throttle=throttle,
                             )
                             if result_id:
                                 results.append((result_id, source))

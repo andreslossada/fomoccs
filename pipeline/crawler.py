@@ -7,8 +7,10 @@ Uses Crawl4AI to crawl event sources and store content in the database.
 import asyncio
 import json
 import re
+import sys
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 import db
 import httpx
@@ -24,6 +26,13 @@ DEFAULT_CRAWL_TIMEOUT = 180
 # pages that didn't load properly) and should be marked as failed.
 MIN_CRAWL_CONTENT_SIZE = 500
 
+# Default fallback cooldown when we get a 429 with no Retry-After header.
+DEFAULT_BACKOFF_SECONDS = 30.0
+
+# Default per-tier min intervals (seconds between requests to the same hostname).
+# Sources can override via sources.min_request_interval_seconds.
+DEFAULT_TIER_INTERVALS: dict[int, float] = {1: 0.5, 2: 2.0, 3: 5.0}
+
 try:
     from crawl4ai import BrowserConfig, CrawlerRunConfig
     from crawl4ai.content_filter_strategy import PruningContentFilter
@@ -34,6 +43,127 @@ except ImportError:
     print("Error: crawl4ai is required.")
     print("Install it with: pip install crawl4ai")
     raise
+
+
+def log_event(event: str, **fields: Any) -> None:
+    """Emit a structured JSON log line to stdout.
+
+    Cloud Run / Cloud Logging parses these as ``jsonPayload`` entries, so each
+    field becomes a queryable log field. Use ``event=...`` as the log type
+    discriminator (e.g., ``source_complete``, ``source_error``, ``host_backoff``).
+    """
+    payload = {"event": event, **fields}
+    print(json.dumps(payload, default=str), file=sys.stdout, flush=True)
+
+
+def hostname_of(url: str) -> str:
+    """Extract the lowercase hostname (no port) from a URL."""
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except Exception:
+        return ""
+
+
+class HostnameThrottle:
+    """Per-hostname request throttle with cooldown support for 429 responses.
+
+    The throttle enforces two guarantees for each hostname:
+
+    1. The interval between any two ``wait_for_slot`` calls is at least
+       ``resolve_interval(source)`` seconds (the per-source override or
+       the tier default).
+    2. After ``backoff(hostname)`` is called (e.g., on a 429), the hostname
+       is blocked for ``retry_after`` seconds (or ``DEFAULT_BACKOFF_SECONDS``).
+
+    The throttle is async-safe: concurrent workers coordinate via ``asyncio``
+    scheduling, not locks, so the cost of a ``wait_for_slot`` call when the
+    slot is already free is a single dict lookup.
+    """
+
+    def __init__(
+        self,
+        tier_intervals: dict[int, float] | None = None,
+        clock: "callable[[], float] | None" = None,
+    ) -> None:
+        self._tier_intervals = dict(tier_intervals or DEFAULT_TIER_INTERVALS)
+        self._last_request: dict[str, float] = {}
+        self._cooldown_until: dict[str, float] = {}
+        self._clock = clock or asyncio.get_event_loop().time
+
+    def resolve_interval(self, source: dict[str, Any]) -> float:
+        """Return the min interval (seconds) for a source.
+
+        Per-source ``min_request_interval_seconds`` overrides the tier default.
+        """
+        override = source.get("min_request_interval_seconds")
+        if override is not None:
+            try:
+                v = float(override)
+            except (TypeError, ValueError):
+                v = 0.0
+            if v > 0:
+                return v
+        try:
+            tier = int(source.get("tier") or 1)
+        except (TypeError, ValueError):
+            tier = 1
+        return self._tier_intervals.get(tier, self._tier_intervals[1])
+
+    async def wait_for_slot(self, hostname: str, interval: float) -> None:
+        """Sleep until we can make a request to ``hostname``.
+
+        Respects both the per-hostname cooldown (set by ``backoff``) and the
+        minimum interval since the last request. Records the request time
+        after the wait so the next caller measures from this point.
+        """
+        if not hostname:
+            return
+        now = self._clock()
+        cooldown_end = self._cooldown_until.get(hostname, 0.0)
+        cooldown_sleep = max(0.0, cooldown_end - now)
+        last = self._last_request.get(hostname, 0.0)
+        interval_sleep = max(0.0, last + interval - now)
+        sleep_for = max(cooldown_sleep, interval_sleep)
+        if sleep_for > 0:
+            await asyncio.sleep(sleep_for)
+        self._last_request[hostname] = self._clock()
+
+    def backoff(
+        self,
+        hostname: str,
+        retry_after: float | None = None,
+        reason: str = "429",
+    ) -> float:
+        """Mark ``hostname`` as backed off. Returns the cooldown duration in seconds.
+
+        ``retry_after`` should be the value from the ``Retry-After`` header if
+        present, else ``None`` to fall back to ``DEFAULT_BACKOFF_SECONDS``.
+        """
+        if not hostname:
+            return 0.0
+        duration = DEFAULT_BACKOFF_SECONDS
+        if retry_after is not None:
+            try:
+                duration = max(float(retry_after), DEFAULT_BACKOFF_SECONDS)
+            except (TypeError, ValueError):
+                pass
+        self._cooldown_until[hostname] = self._clock() + duration
+        log_event(
+            "host_backoff",
+            hostname=hostname,
+            reason=reason,
+            cooldown_seconds=duration,
+        )
+        return duration
+
+    def stats(self) -> dict[str, Any]:
+        """Snapshot of throttle state (for tests / debug)."""
+        return {
+            "hostnames_tracked": len(self._last_request),
+            "cooldowns_active": len(
+                [h for h, t in self._cooldown_until.items() if t > self._clock()]
+            ),
+        }
 
 
 def strip_jsonp(text: str, callback_name: str | None = None) -> str:
@@ -310,6 +440,7 @@ async def crawl_json_api(
     cursor: PgCursor,
     connection: PgConnection,
     crawl_job_id: int,
+    throttle: HostnameThrottle | None = None,
 ) -> tuple[int | None, dict[str, Any] | None]:
     """Crawl a source via HTTP GET to a JSON/JSONP API endpoint.
 
@@ -318,12 +449,16 @@ async def crawl_json_api(
         cursor: Database cursor
         connection: Database connection
         crawl_job_id: ID of the current crawl job
+        throttle: Optional per-hostname throttle to pace requests. ``None``
+            disables throttling (useful for tests).
 
     Returns:
         crawl_result_id if successful, None otherwise
     """
     name = source["name"]
     config = source.get("json_api_config", {})
+    source_id = source.get("id")
+    started_at = asyncio.get_event_loop().time()
 
     if not config:
         print(f"  Skipping {name}: no json_api_config")
@@ -346,15 +481,45 @@ async def crawl_json_api(
                 cursor, connection, crawl_result_id, "No URL configured"
             )
             db.update_source_last_crawled(cursor, connection, source["id"])
+            log_event(
+                "source_error",
+                source_id=source_id,
+                source_name=name,
+                crawl_result_id=crawl_result_id,
+                error="No URL configured",
+                duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+            )
             return None, None
 
         print(f"  Crawling {name} via JSON API...")
         print(f"    - GET {url}")
 
+        # Per-hostname throttle: enforce min interval between requests.
+        hostname = hostname_of(url)
+        if throttle and hostname:
+            await throttle.wait_for_slot(hostname, throttle.resolve_interval(source))
+
         # HTTP GET
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(url)
-            response.raise_for_status()
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.get(url)
+        except httpx.HTTPStatusError as e:
+            if throttle and hostname and e.response.status_code == 429:
+                retry_after = e.response.headers.get("Retry-After")
+                try:
+                    retry_after_f = float(retry_after) if retry_after else None
+                except (TypeError, ValueError):
+                    retry_after_f = None
+                throttle.backoff(hostname, retry_after_f, reason="429")
+            raise
+        if response.status_code == 429 and throttle and hostname:
+            retry_after = response.headers.get("Retry-After")
+            try:
+                retry_after_f = float(retry_after) if retry_after else None
+            except (TypeError, ValueError):
+                retry_after_f = None
+            throttle.backoff(hostname, retry_after_f, reason="429")
+        response.raise_for_status()
 
         raw_text = response.text
 
@@ -401,6 +566,16 @@ async def crawl_json_api(
                 cursor, connection, crawl_result_id, "No events after filtering"
             )
             db.update_source_last_crawled(cursor, connection, source["id"])
+            log_event(
+                "source_error",
+                source_id=source_id,
+                source_name=name,
+                crawl_result_id=crawl_result_id,
+                mode="json_api",
+                error="No events after filtering",
+                error_type="EmptyContent",
+                duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+            )
             return None, None
 
         # Store markdown as crawled_content for audit trail
@@ -427,6 +602,17 @@ async def crawl_json_api(
             )
 
         db.update_source_last_crawled(cursor, connection, source["id"])
+        log_event(
+            "source_complete",
+            source_id=source_id,
+            source_name=name,
+            crawl_result_id=crawl_result_id,
+            mode="json_api",
+            events_mapped=extracted_event_count,
+            events_filtered=filtered_count,
+            content_bytes=len(markdown),
+            duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+        )
         return crawl_result_id, pre_filter_data
 
     except Exception as e:
@@ -434,6 +620,16 @@ async def crawl_json_api(
         print(f"    - Error crawling {name}: {error_msg}")
         db.update_crawl_result_failed(cursor, connection, crawl_result_id, error_msg)
         db.update_source_last_crawled(cursor, connection, source["id"])
+        log_event(
+            "source_error",
+            source_id=source_id,
+            source_name=name,
+            crawl_result_id=crawl_result_id,
+            mode="json_api",
+            error=error_msg,
+            error_type=type(e).__name__,
+            duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+        )
         return None, None
 
 
@@ -515,15 +711,21 @@ async def _crawl_all_urls(
     cursor: PgCursor,
     connection: PgConnection,
     crawl_result_id: int,
+    throttle: HostnameThrottle | None = None,
+    source: dict[str, Any] | None = None,
 ) -> str:
     """Crawl all URLs for a source, persisting each result to the database.
 
     Each URL gets its own ``crawl_url_results`` row so that partial progress
     survives timeouts and individual failures are tracked independently.
 
+    ``throttle``, when provided, enforces a per-hostname min interval between
+    ``arun`` calls. ``source`` is needed to resolve the tier/override interval.
+
     Returns the combined markdown from all successful URLs.
     """
     combined_parts: list[str] = []
+    interval = throttle.resolve_interval(source) if (throttle and source) else 0.0
 
     for url_data in urls:
         # Handle both dict format (with js_code) and string format (legacy)
@@ -548,6 +750,11 @@ async def _crawl_all_urls(
         print(f"    - Processing {url}")
         url_content = ""
         page_count = 0
+        hostname = hostname_of(url)
+
+        # Per-hostname throttle: enforce min interval between requests.
+        if throttle and hostname:
+            await throttle.wait_for_slot(hostname, interval)
 
         try:
             arun_result = await crawler.arun(url=url, config=url_config)
@@ -561,6 +768,12 @@ async def _crawl_all_urls(
                 print(
                     f"      Page {page_count}: html={html_len}, success={result.success if result else False}, error={result.error_message if has_error else 'none'}"
                 )
+
+                # Detect 429-style rate limiting in crawl4ai's error messages.
+                if has_error and throttle and hostname:
+                    msg = (result.error_message or "").lower()
+                    if "429" in msg or "too many requests" in msg:
+                        throttle.backoff(hostname, None, reason="429")
 
                 if result and result.html and html_len > 1000:
                     raw_len = (
@@ -611,6 +824,11 @@ async def _crawl_all_urls(
             db.update_crawl_url_result_failed(
                 cursor, connection, url_result_id, error_msg
             )
+            # 429s sometimes bubble up as httpx / aiohttp errors.
+            if throttle and hostname:
+                msg = error_msg.lower()
+                if "429" in msg or "too many requests" in msg:
+                    throttle.backoff(hostname, None, reason="429")
 
     return "".join(combined_parts)
 
@@ -651,6 +869,7 @@ async def crawl_source(
     cursor: PgCursor,
     connection: PgConnection,
     crawl_job_id: int,
+    throttle: HostnameThrottle | None = None,
 ) -> int | None:
     """
     Crawl a source and store the content in the database.
@@ -661,15 +880,26 @@ async def crawl_source(
         cursor: Database cursor
         connection: Database connection
         crawl_job_id: ID of the current crawl job
+        throttle: Optional per-hostname throttle (shared across workers).
 
     Returns:
         crawl_result_id if successful, None otherwise
     """
     name = source["name"]
     urls = source["urls"]
+    source_id = source.get("id")
+    started_at = asyncio.get_event_loop().time()
 
     if not urls:
         print(f"  Skipping {name}: no URLs configured")
+        log_event(
+            "source_error",
+            source_id=source_id,
+            source_name=name,
+            error="No URLs configured",
+            error_type="ConfigError",
+            duration_ms=0,
+        )
         return None
 
     # Create crawl result record
@@ -696,6 +926,8 @@ async def crawl_source(
                 cursor,
                 connection,
                 crawl_result_id,
+                throttle=throttle,
+                source=source,
             ),
             timeout=crawl_timeout,
         )
@@ -710,15 +942,45 @@ async def crawl_source(
                 cursor, connection, crawl_result_id, combined_markdown
             )
             db.update_source_last_crawled(cursor, connection, source["id"])
+            log_event(
+                "source_complete",
+                source_id=source_id,
+                source_name=name,
+                crawl_result_id=crawl_result_id,
+                mode="browser",
+                content_bytes=len(combined_markdown),
+                timed_out=True,
+                duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+            )
             return crawl_result_id
         db.update_crawl_result_failed(cursor, connection, crawl_result_id, error_msg)
         db.update_source_last_crawled(cursor, connection, source["id"])
+        log_event(
+            "source_error",
+            source_id=source_id,
+            source_name=name,
+            crawl_result_id=crawl_result_id,
+            mode="browser",
+            error=error_msg,
+            error_type="TimeoutError",
+            duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+        )
         return None
     except Exception as e:
         error_msg = str(e)
         print(f"    - Error crawling {name}: {error_msg}")
         db.update_crawl_result_failed(cursor, connection, crawl_result_id, error_msg)
         db.update_source_last_crawled(cursor, connection, source["id"])
+        log_event(
+            "source_error",
+            source_id=source_id,
+            source_name=name,
+            crawl_result_id=crawl_result_id,
+            mode="browser",
+            error=error_msg,
+            error_type=type(e).__name__,
+            duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+        )
         return None
 
     # Validate combined crawl results
@@ -727,6 +989,16 @@ async def crawl_source(
             cursor, connection, crawl_result_id, "No content retrieved"
         )
         db.update_source_last_crawled(cursor, connection, source["id"])
+        log_event(
+            "source_error",
+            source_id=source_id,
+            source_name=name,
+            crawl_result_id=crawl_result_id,
+            mode="browser",
+            error="No content retrieved",
+            error_type="EmptyContent",
+            duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+        )
         return None
 
     content_size = len(combined_markdown)
@@ -735,6 +1007,17 @@ async def crawl_source(
         print(f"    - {error_msg}")
         db.update_crawl_result_failed(cursor, connection, crawl_result_id, error_msg)
         db.update_source_last_crawled(cursor, connection, source["id"])
+        log_event(
+            "source_error",
+            source_id=source_id,
+            source_name=name,
+            crawl_result_id=crawl_result_id,
+            mode="browser",
+            error=error_msg,
+            error_type="ContentTooSmall",
+            content_bytes=content_size,
+            duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+        )
         return None
 
     # Store combined content for downstream extraction
@@ -744,6 +1027,16 @@ async def crawl_source(
     db.update_source_last_crawled(cursor, connection, source["id"])
 
     print(f"    - Stored {len(combined_markdown)} characters of content")
+    log_event(
+        "source_complete",
+        source_id=source_id,
+        source_name=name,
+        crawl_result_id=crawl_result_id,
+        mode="browser",
+        urls_crawled=len(urls),
+        content_bytes=content_size,
+        duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+    )
     return crawl_result_id
 
 
