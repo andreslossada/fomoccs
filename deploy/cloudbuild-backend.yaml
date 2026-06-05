@@ -4,10 +4,9 @@ steps:
       - build
       - --platform=linux/amd64
       - -t
-      - us-central1-docker.pkg.dev/fomoccs-caracas/fomoccs-docker/backend:${SHORT_SHA}
+      - us-central1-docker.pkg.dev/fomoccs-caracas/fomoccs-docker/backend:${_SHORT_SHA}
       - .
 images:
-  - us-central1-docker.pkg.dev/fomoccs-caracas/fomoccs-docker/backend:${SHORT_SHA}
+  - us-central1-docker.pkg.dev/fomoccs-caracas/fomoccs-docker/backend:${_SHORT_SHA}
 substitutions:
-  _GIT_SHA: ""
-  SHORT_SHA: latest
+  _SHORT_SHA: latest
