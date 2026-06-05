@@ -23,16 +23,20 @@ The LLM and geocoding chains are already in place and stable. The work here is o
 
 ## Decisions
 
-### Decision 1: `asyncio.gather` with bounded semaphore (size 5)
+### Decision 1: Bounded worker pool of `PIPELINE_CONCURRENCY` workers (size 5)
 
-**Choice**: refactor `pipeline/main.py:run_pipeline()` so each `process_source(sid, sem)` call awaits its own crawl+extract+process pipeline; wrap with `asyncio.gather(..., return_exceptions=True)`. A `Semaphore(5)` caps concurrency.
+**Choice**: refactor `pipeline/main.py:run_pipeline()` so sources are pulled from a shared queue by a worker pool of `PIPELINE_CONCURRENCY` (default 5) coroutines. Each worker processes one source at a time — crawl, extract, geocode, persist — and a `HostnameThrottle` instance (one per run) is shared across all workers to coordinate per-domain pacing.
+
+> **Implementation note (deviation from original sketch)**: The proposal's original sketch called for `asyncio.gather` with one task per source. During implementation we discovered that the crawler uses crawl4ai, which spawns a Playwright browser instance per crawl — a heavy operation. Calling `asyncio.gather(process_source(s) for s in sources)` would have spawned N browser instances in parallel, exhausting memory and triggering Cloud Run's per-instance limits. The worker pool model (5 workers, browser shared per worker) keeps memory bounded while still allowing 5 sources to be in-flight at any time. Throttling is per-hostname across the whole pool, so concurrency is safe even when multiple workers target the same domain.
 
 **Why**:
 - A Cloud Run Job execution is a single process; `asyncio` is the lightest way to multiplex it.
-- `return_exceptions=True` keeps one bad source from killing the others.
+- The worker pool keeps the number of concurrent browser instances bounded.
+- A `try/except` per source keeps one bad source from killing the others (no shared state that a single failure could corrupt).
 - 5 is a tunable default; can be moved to env var (`PIPELINE_CONCURRENCY`).
 
 **Alternatives considered**:
+- **`asyncio.gather` per source** — rejected: would spawn N browser instances in parallel, hitting OOM and Cloud Run limits. See implementation note above.
 - **Multiple Cloud Run Job executions in parallel** (e.g. `gcloud run jobs execute` × 5). Rejected: each execution incurs cold-start cost and they don't share a process-local throttle, so per-domain throttling becomes a distributed problem.
 - **Celery fan-out** (Redis + workers). Rejected: Redis isn't deployed in prod yet, and adding it for this change is too much.
 
@@ -75,14 +79,20 @@ The LLM and geocoding chains are already in place and stable. The work here is o
 
 ### Decision 5: Staggered Cloud Scheduler jobs
 
-**Choice**: create 2-3 Cloud Scheduler jobs that invoke `fomoccs-pipeline` with different `--ids` subsets and cadences:
-- `ingest-ticketing` — every 6h — MakeTicket, Superboletos, Eventbrite
-- `ingest-venues` — every 12h — CC Chacao, Celarg, Museo de Ciencias, Teatro TC, CCS Cultura en Movimiento
-- `ingest-tier2` — every 24h — Goliiive, El Diario, Ticketshow
+**Choice**: create 3 Cloud Scheduler jobs that invoke `fomoccs-pipeline` with `--tier N`, one per tier. Cadence varies by tier (T1 = 6h, T2 = 12h, T3 = 24h):
+- `fomoccs-ingest-tier1` — every 6h, runs with `--tier 1` — all active tier-1 sources (high-cadence: ticketing, popular venues, aggregators)
+- `fomoccs-ingest-tier2` — every 12h, runs with `--tier 2` — all active tier-2 sources (medium-cadence: news-driven, slower-changing sites)
+- `fomoccs-ingest-tier3` — every 24h, runs with `--tier 3` — all active tier-3 sources (low-cadence: captcha-prone, slow sites)
 
-**Why**: ticketing platforms rotate events faster than venue calendars, so they need more frequent pulls without being aggressive about the site. Splitting them lets us tune cadence independently.
+> **Implementation note**: The proposal's original sketch called for 3 jobs by source category (`ingest-ticketing`, `ingest-venues`, `ingest-tier2`). The implementation generalized to tier-based filtering since the only reliable discriminator in the database is `sources.tier`. This is more maintainable — adding/removing a source only requires changing its tier, not updating scheduler config. The deploy script `deploy/setup-scheduler.sh` creates the 3 jobs idempotently (uses `gcloud scheduler jobs describe` to update vs create).
+
+**Why**:
+- Tier-based filtering matches the actual tier semantics (T1 = high-trust, high-cadence, low-delay; T2 = medium; T3 = cautious).
+- Database query for tier-filtered sources (`db.get_sources_due_for_crawling(..., tier=N)`) bypasses the `crawl_frequency` check so the scheduler cadence is the sole gate — this is what makes 6h/12h/24h reliable.
+- Per-tier jobs are still idempotent; a single job failure doesn't cascade.
 
 **Alternatives considered**:
+- **Category-based jobs (ticketing / venues / tier2)** — rejected: requires either a `category` column on sources (not in DB) or hardcoded ID lists in the scheduler (drifts over time). Tier-based is data-driven.
 - **One job, all sources, every 6h** — wastes Cloud Run minutes on slow-changing sources.
 - **Trigger-on-publish (webhook)** — most sources don't have webhooks.
 

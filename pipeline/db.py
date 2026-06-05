@@ -74,7 +74,7 @@ def _parse_url_data(url_string):
     return urls
 
 
-def get_sources_due_for_crawling(cursor, source_ids=None):
+def get_sources_due_for_crawling(cursor, source_ids=None, tier=None):
     """
     Get sources that are due for crawling based on crawl_frequency.
 
@@ -82,6 +82,8 @@ def get_sources_due_for_crawling(cursor, source_ids=None):
         cursor: Database cursor
         source_ids: Optional list of source IDs to filter by. If provided,
                     only these sources are returned (ignoring crawl_frequency).
+        tier: Optional tier number (1, 2, or 3) to filter by. Useful for
+              cadence-based scheduling (one job per tier).
 
     Returns sources where:
     - disabled = FALSE
@@ -93,7 +95,8 @@ def get_sources_due_for_crawling(cursor, source_ids=None):
         placeholders = ",".join(["%s"] * len(source_ids))
         cursor.execute(
             f"""
-            SELECT s.id, s.name, cc.crawl_frequency, cc.selector, cc.num_clicks,
+            SELECT s.id, s.name, s.tier, s.min_request_interval_seconds,
+                   cc.crawl_frequency, cc.selector, cc.num_clicks,
                    cc.keywords, cc.max_pages, cc.max_batches, cc.notes,
                    cc.delay_before_return_html, cc.content_filter_threshold, cc.scan_full_page,
                    cc.remove_overlay_elements, cc.javascript_enabled, cc.text_mode, cc.light_mode,
@@ -105,15 +108,35 @@ def get_sources_due_for_crawling(cursor, source_ids=None):
             LEFT JOIN source_urls su ON su.source_id = s.id AND su.deleted_at IS NULL
             WHERE s.id IN ({placeholders})
               AND s.deleted_at IS NULL
-            GROUP BY s.id, s.name, cc.id
+            GROUP BY s.id, s.name, s.tier, s.min_request_interval_seconds, cc.id
             HAVING STRING_AGG(su.url, '') IS NOT NULL OR cc.crawl_mode = 'json_api'
             ORDER BY s.id ASC
         """,
             source_ids,
         )
     else:
-        cursor.execute("""
-            SELECT s.id, s.name, cc.crawl_frequency, cc.selector, cc.num_clicks,
+        params: list = []
+        tier_clause = ""
+        if tier is not None:
+            tier_clause = "AND s.tier = %s"
+            params.append(int(tier))
+        # When filtering by tier, process every active source at that tier
+        # regardless of last_crawled_at — the scheduler cadence is the gate.
+        # Without tier, fall back to the standard crawl_frequency check.
+        cadence_clause = ""
+        if tier is not None:
+            cadence_clause = "AND (cc.crawl_after IS NULL OR cc.crawl_after <= CURRENT_DATE)"
+        else:
+            cadence_clause = (
+                "AND (cc.crawl_after IS NULL OR cc.crawl_after <= CURRENT_DATE)"
+                " AND (cc.force_crawl = TRUE"
+                " OR cc.last_crawled_at IS NULL"
+                " OR EXTRACT(DAY FROM NOW() - cc.last_crawled_at) >= COALESCE(cc.crawl_frequency, 7))"
+            )
+        cursor.execute(
+            f"""
+            SELECT s.id, s.name, s.tier, s.min_request_interval_seconds,
+                   cc.crawl_frequency, cc.selector, cc.num_clicks,
                    cc.keywords, cc.max_pages, cc.max_batches, cc.notes,
                    cc.delay_before_return_html, cc.content_filter_threshold, cc.scan_full_page,
                    cc.remove_overlay_elements, cc.javascript_enabled, cc.text_mode, cc.light_mode,
@@ -125,43 +148,47 @@ def get_sources_due_for_crawling(cursor, source_ids=None):
             LEFT JOIN source_urls su ON su.source_id = s.id AND su.deleted_at IS NULL
             WHERE s.disabled = FALSE
               AND s.deleted_at IS NULL
-              AND (cc.crawl_after IS NULL OR cc.crawl_after <= CURRENT_DATE)
-              AND (cc.force_crawl = TRUE
-                   OR cc.last_crawled_at IS NULL
-                   OR EXTRACT(DAY FROM NOW() - cc.last_crawled_at) >= COALESCE(cc.crawl_frequency, 7))
-            GROUP BY s.id, s.name, cc.id
+              {tier_clause}
+              {cadence_clause}
+            GROUP BY s.id, s.name, s.tier, s.min_request_interval_seconds, cc.id
             HAVING STRING_AGG(su.url, '') IS NOT NULL OR cc.crawl_mode = 'json_api'
-            ORDER BY cc.force_crawl DESC, cc.last_crawled_at ASC NULLS LAST
-        """)
+            ORDER BY cc.force_crawl DESC, cc.last_crawled_at ASC NULLS FIRST
+        """,
+            params,
+        )
 
     sources = []
     for row in cursor.fetchall():
         source = {
             "id": row[0],
             "name": row[1],
-            "crawl_frequency": row[2] or 7,
-            "selector": row[3],
-            "num_clicks": row[4] or 2,
-            "keywords": row[5],
-            "max_pages": row[6] or 30,
-            "max_batches": row[7],
-            "notes": row[8],
-            "delay_before_return_html": row[9],
-            "content_filter_threshold": row[10],
-            "scan_full_page": row[11],
-            "remove_overlay_elements": row[12],
-            "javascript_enabled": row[13],
-            "text_mode": row[14],
-            "light_mode": row[15],
-            "use_stealth": row[16],
-            "scroll_delay": float(row[17]) if row[17] is not None else None,
-            "crawl_timeout": row[18],
-            "process_images": row[19],
-            "crawl_mode": row[20] or "browser",
-            "json_api_config": row[21]
-            if isinstance(row[21], dict)
-            else (json.loads(row[21]) if row[21] else {}),
-            "urls": _parse_url_data(row[22]) if row[22] else [],
+            "tier": row[2] or 1,
+            "min_request_interval_seconds": (
+                float(row[3]) if row[3] is not None else None
+            ),
+            "crawl_frequency": row[4] or 7,
+            "selector": row[5],
+            "num_clicks": row[6] or 2,
+            "keywords": row[7],
+            "max_pages": row[8] or 30,
+            "max_batches": row[9],
+            "notes": row[10],
+            "delay_before_return_html": row[11],
+            "content_filter_threshold": row[12],
+            "scan_full_page": row[13],
+            "remove_overlay_elements": row[14],
+            "javascript_enabled": row[15],
+            "text_mode": row[16],
+            "light_mode": row[17],
+            "use_stealth": row[18],
+            "scroll_delay": float(row[19]) if row[19] is not None else None,
+            "crawl_timeout": row[20],
+            "process_images": row[21],
+            "crawl_mode": row[22] or "browser",
+            "json_api_config": row[23]
+            if isinstance(row[23], dict)
+            else (json.loads(row[23]) if row[23] else {}),
+            "urls": _parse_url_data(row[24]) if row[24] else [],
         }
         sources.append(source)
 

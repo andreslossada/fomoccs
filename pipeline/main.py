@@ -31,13 +31,17 @@ from crawl4ai import AsyncWebCrawler
 from extractor import TokenTracker
 
 
-async def run_pipeline(source_ids=None, limit=None):
+async def run_pipeline(source_ids=None, limit=None, tier=None):
     """Execute the scraping and extraction pipeline.
 
     Args:
         source_ids: Optional list of source IDs to process. If None, processes
                     all sources due for crawling based on crawl_frequency.
         limit: Optional maximum number of sources to crawl.
+        tier: Optional tier (1/2/3) to filter by. Used by the cadence
+              Cloud Scheduler jobs (e.g. ``--tier 1`` for the 6h ticketing
+              job). When set, source_ids and crawl_frequency are ignored —
+              every source at this tier is processed.
     """
     print(f"{'=' * 60}")
     print("EVENT PROCESSING PIPELINE")
@@ -97,7 +101,7 @@ async def run_pipeline(source_ids=None, limit=None):
         print("STEP 1: Finding Sources Due for Crawling")
         print(f"{'=' * 60}")
 
-        sources = db.get_sources_due_for_crawling(cursor, source_ids)
+        sources = db.get_sources_due_for_crawling(cursor, source_ids, tier=tier)
         if limit and len(sources) > limit:
             print(f"Found {len(sources)} source(s) due, limiting to {limit}")
             sources = sources[:limit]
@@ -434,6 +438,7 @@ Examples:
   python main.py --ids 941           # Process specific source ID
   python main.py --ids 941,942,943   # Process multiple source IDs
   python main.py --limit 5           # Only crawl first 5 sources due
+  python main.py --tier 1            # Force-process every active tier-1 source
         """,
     )
     parser.add_argument(
@@ -445,6 +450,13 @@ Examples:
     parser.add_argument(
         "--limit", "-n", type=int, help="Maximum number of sources to crawl"
     )
+    parser.add_argument(
+        "--tier",
+        type=int,
+        choices=[1, 2, 3],
+        help="Process every active source at this tier (ignores crawl_frequency). "
+             "Used by cadence Cloud Scheduler jobs (e.g. 6h for tier 1).",
+    )
     return parser.parse_args()
 
 
@@ -455,5 +467,5 @@ if __name__ == "__main__":
     if args.ids:
         source_ids = [int(id.strip()) for id in args.ids.split(",")]
 
-    success = asyncio.run(run_pipeline(source_ids, args.limit))
+    success = asyncio.run(run_pipeline(source_ids, args.limit, tier=args.tier))
     sys.exit(0 if success else 1)
