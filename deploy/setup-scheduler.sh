@@ -23,7 +23,8 @@ set -euo pipefail
 : "${PROJECT_ID:=fomoccs-caracas}"
 : "${REGION:=us-central1}"
 : "${PIPELINE_JOB:=fomoccs-pipeline}"
-: "${SERVICE_ACCOUNT:=${PROJECT_ID}@appspot.gserviceaccount.com}"
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+: "${SERVICE_ACCOUNT:=${PROJECT_NUMBER}-compute@developer.gserviceaccount.com}"
 
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "Error: gcloud CLI not found" >&2
@@ -45,9 +46,9 @@ create_job() {
       --schedule="$schedule" \
       --time-zone="UTC" \
       --http-method=POST \
-      --uri="https://${REGION}-run.googleapis.com/apis/run/v1/namespaces/${PROJECT_ID}/jobs/${PIPELINE_JOB}:run" \
+      --uri="${RUN_JOB_URI}" \
       --oauth-service-account-email="$SERVICE_ACCOUNT" \
-      --headers="Content-Type=application/json" \
+      --update-headers="Content-Type=application/json" \
       --message-body="{\"overrides\":{\"containerOverrides\":[{\"args\":[\"python\",\"main.py\",\"--tier=${tier}\"]}]}}" \
       --description="Fomoccs pipeline: tier ${tier} sources"
   else
@@ -58,7 +59,7 @@ create_job() {
       --schedule="$schedule" \
       --time-zone="UTC" \
       --http-method=POST \
-      --uri="https://${REGION}-run.googleapis.com/apis/run/v1/namespaces/${PROJECT_ID}/jobs/${PIPELINE_JOB}:run" \
+      --uri="${RUN_JOB_URI}" \
       --oauth-service-account-email="$SERVICE_ACCOUNT" \
       --headers="Content-Type=application/json" \
       --message-body="{\"overrides\":{\"containerOverrides\":[{\"args\":[\"python\",\"main.py\",\"--tier=${tier}\"]}]}}" \
@@ -67,6 +68,11 @@ create_job() {
 }
 
 echo "=== Setting up Cloud Scheduler jobs (project: $PROJECT_ID) ==="
+
+# Cloud Run Jobs run API URL. The path is:
+#   /apis/run.googleapis.com/v1/namespaces/{PROJECT_ID}/jobs/{JOB}:run
+# Use the project ID in the namespace (not the project number).
+RUN_JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/${PIPELINE_JOB}:run"
 
 # Tier 1: every 6 hours (00, 06, 12, 18 UTC)
 create_job "fomoccs-ingest-tier1" "0 */6 * * *" 1
