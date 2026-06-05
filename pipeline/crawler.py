@@ -8,6 +8,7 @@ import asyncio
 import json
 import re
 import sys
+import time
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
@@ -88,7 +89,22 @@ class HostnameThrottle:
         self._tier_intervals = dict(tier_intervals or DEFAULT_TIER_INTERVALS)
         self._last_request: dict[str, float] = {}
         self._cooldown_until: dict[str, float] = {}
-        self._clock = clock or asyncio.get_event_loop().time
+        if clock is not None:
+            self._clock = clock
+        else:
+            self._clock = self._default_clock
+
+    @staticmethod
+    def _default_clock() -> float:
+        """Default monotonic clock. Prefers the running asyncio loop's
+        ``loop.time()`` when one is active, otherwise falls back to
+        ``time.monotonic()`` so the throttle can be constructed outside of
+        a running event loop (tests, scripts, etc.)."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return time.monotonic()
+        return loop.time()
 
     def resolve_interval(self, source: dict[str, Any]) -> float:
         """Return the min interval (seconds) for a source.
