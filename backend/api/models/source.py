@@ -9,6 +9,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     text,
@@ -30,6 +31,10 @@ class Source(SoftDeleteMixin, TimestampMixin, Base):
     )
     trust_level: Mapped[float | None] = mapped_column(Numeric(2, 1, asdecimal=False))
     disabled: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    tier: Mapped[int] = mapped_column(SmallInteger, server_default="1")
+    min_request_interval_seconds: Mapped[float | None] = mapped_column(
+        Numeric(4, 2, asdecimal=False)
+    )
 
     # Relationships
     urls: Mapped[list["SourceUrl"]] = relationship(back_populates="source")

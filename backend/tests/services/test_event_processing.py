@@ -172,6 +172,86 @@ async def test_resolve_location_none_location_name_returns_none(
 
 
 @pytest.mark.asyncio
+async def test_resolve_location_dedup_hits_when_sublocation_matches(
+    db_session: AsyncSession,
+) -> None:
+    """Dedup fast-path: same name + same sublocation returns existing Location."""
+    existing = Location(
+        name="Centro Cultural Chacao", address="Sala 1", emoji="\U0001f3ad"
+    )
+    db_session.add(existing)
+    await db_session.flush()
+
+    with patch("api.services.event_processing.geocode_location") as mock_task:
+        result = await resolve_location(
+            db_session,
+            location_name="Centro Cultural Chacao",
+            sublocation="Sala 1",
+            source_site_name="site",
+            event_name="Some Show",
+        )
+
+    assert result is not None
+    assert result.id == existing.id
+    mock_task.delay.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_location_dedup_falls_back_to_null_address(
+    db_session: AsyncSession,
+) -> None:
+    """Dedup fast-path: when DB row has NULL address, any sublocation matches."""
+    existing = Location(name="Centro Cultural Chacao", address=None, emoji="\U0001f3ad")
+    db_session.add(existing)
+    await db_session.flush()
+
+    with patch("api.services.event_processing.geocode_location") as mock_task:
+        result = await resolve_location(
+            db_session,
+            location_name="Centro Cultural Chacao",
+            sublocation="Sala 2",
+            source_site_name="site",
+            event_name="Some Show",
+        )
+
+    assert result is not None
+    assert result.id == existing.id
+    mock_task.delay.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_location_dedup_misses_when_sublocation_differs(
+    db_session: AsyncSession,
+) -> None:
+    """Dedup fast-path misses when DB row has a different sublocation.
+
+    The function then falls through to the in-memory scan. Here no in-memory
+    match exists either, so a new Location is created.
+    """
+    existing = Location(
+        name="Centro Cultural Chacao", address="Sala 1", emoji="\U0001f3ad"
+    )
+    db_session.add(existing)
+    await db_session.flush()
+
+    with patch(
+        "api.services.event_processing.geocode_location", new=MagicMock()
+    ) as mock_task:
+        result = await resolve_location(
+            db_session,
+            location_name="Centro Cultural Chacao",
+            sublocation="Sala 7",
+            source_site_name="site",
+            event_name="Some Show",
+        )
+
+    assert result is not None
+    assert result.id != existing.id
+    assert result.address == "Sala 7"
+    mock_task.delay.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_process_tags_rewrite_transforms(db_session: AsyncSession) -> None:
     await _cleanup_tag_rules(db_session)
     db_session.add(

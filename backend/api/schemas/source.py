@@ -148,6 +148,8 @@ class SourceResponse(BaseModel):
     type: SourceType
     trust_level: float | None = None
     disabled: bool = False
+    tier: int = 1
+    min_request_interval_seconds: float | None = None
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = None
@@ -163,6 +165,8 @@ class SourceCreate(BaseModel):
     type: SourceType
     trust_level: Decimal | None = None
     disabled: bool = False
+    tier: int = 1
+    min_request_interval_seconds: float | None = None
     urls: list[SourceUrlCreate] = []
     crawl_config: CrawlConfigCreate | None = None
 
@@ -172,6 +176,8 @@ class SourceUpdate(BaseModel):
     type: SourceType | None = None
     trust_level: Decimal | None = None
     disabled: bool | None = None
+    tier: int | None = None
+    min_request_interval_seconds: float | None = None
 
 
 class SourceListItem(BaseModel):
@@ -182,4 +188,6 @@ class SourceListItem(BaseModel):
     type: SourceType
     trust_level: float | None = None
     disabled: bool = False
+    tier: int = 1
+    min_request_interval_seconds: float | None = None
     deleted_at: datetime | None = None

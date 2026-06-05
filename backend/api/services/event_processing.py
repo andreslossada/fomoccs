@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -352,6 +352,24 @@ async def resolve_location(
 
     full_loc = f"{normalized_loc} {normalized_sub}".strip()
 
+    # Step 0 (fast dedup path): DB-level exact match on normalized name with
+    # optional address tiebreaker. Catches the common case where two extractions
+    # produce the same location string without loading all rows into memory.
+    # See spec: geocoding-dedup.
+    dedup_stmt = select(Location).where(
+        func.lower(Location.name) == location_name.lower()
+    )
+    if sublocation:
+        dedup_stmt = dedup_stmt.where(
+            or_(
+                func.lower(Location.address) == sublocation.lower(),
+                Location.address.is_(None),
+            )
+        )
+    dedup_match = (await db.execute(dedup_stmt)).scalar_one_or_none()
+    if dedup_match is not None:
+        return dedup_match
+
     stmt = select(Location).options(selectinload(Location.alternate_names))
     result = await db.execute(stmt)
     locations = list(result.scalars().all())
@@ -400,7 +418,11 @@ async def resolve_location(
                     return loc
 
     # No match — create a new Location and enqueue geocoding.
-    new_loc = Location(name=location_name, emoji=_DEFAULT_LOCATION_EMOJI)
+    new_loc = Location(
+        name=location_name,
+        address=sublocation or None,
+        emoji=_DEFAULT_LOCATION_EMOJI,
+    )
     db.add(new_loc)
     await db.flush()
     try:
