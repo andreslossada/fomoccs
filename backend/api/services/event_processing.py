@@ -8,6 +8,7 @@ emoji extraction) as well as the async DB-touching services
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
@@ -20,6 +21,8 @@ from api.models.base import TagRuleType
 from api.models.location import Location
 from api.models.tag import TagRule
 from api.tasks.geocoding import geocode_location
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Blocked emoji — ported verbatim from pipeline/processor.py lines 57-77.
@@ -400,5 +403,18 @@ async def resolve_location(
     new_loc = Location(name=location_name, emoji=_DEFAULT_LOCATION_EMOJI)
     db.add(new_loc)
     await db.flush()
-    geocode_location.delay(new_loc.id)
+    try:
+        geocode_location.delay(new_loc.id)
+    except Exception as exc:
+        # If Celery/Redis is unavailable (e.g. broker not deployed in dev),
+        # log and continue. The new location is still persisted with
+        # NULL coordinates; operators can run /backfill-geocode later or
+        # edit coordinates manually via PUT /locations/{id}.
+        logger.warning(
+            "Could not enqueue geocoding for new location %d (%s): %s. "
+            "Location was created without coordinates; run backfill-geocode later.",
+            new_loc.id,
+            location_name,
+            exc,
+        )
     return new_loc

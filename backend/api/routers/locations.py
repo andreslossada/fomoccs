@@ -9,7 +9,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from api.celery_app import celery
-from api.dependencies import AdminUserDep, CurrentUserDep, GeoapifyKeyDep, SessionDep
+from api.dependencies import (
+    AdminUserDep,
+    CurrentUserDep,
+    GeocodingKeyDep,
+    SessionDep,
+)
 from api.models.event import Event
 from api.models.location import Location, LocationAlternateName, LocationTag
 from api.models.tag import Tag
@@ -27,7 +32,7 @@ from api.schemas.location import (
 )
 from api.services.geocoding import (
     GeocodingResult,
-    geocode_location_name,
+    geocode_with_fallback,
     normalize_location_name,
 )
 from api.services.tags import get_or_create_tag
@@ -127,7 +132,7 @@ async def bulk_create_locations(
     data: BulkCreateRequest,
     db: SessionDep,
     user: CurrentUserDep,
-    api_key: GeoapifyKeyDep,
+    keys: GeocodingKeyDep,
 ) -> BulkCreateResponse:
     """Create multiple locations with automatic geocoding and dedup."""
     # -- Build dedup set from existing locations + alternate names --
@@ -156,8 +161,12 @@ async def bulk_create_locations(
         if loc.lat is not None and loc.lng is not None:
             return idx, None  # already has coords
         async with _geocode_semaphore:
-            return idx, await geocode_location_name(
-                loc.name, api_key, address=loc.address, client=client
+            return idx, await geocode_with_fallback(
+                loc.name,
+                address=loc.address,
+                google_api_key=keys.google_api_key,
+                geoapify_api_key=keys.geoapify_api_key,
+                client=client,
             )
 
     # Filter out duplicates before geocoding (save API calls)
@@ -299,7 +308,7 @@ async def bulk_create_locations(
 async def backfill_geocode(
     db: SessionDep,
     user: AdminUserDep,
-    api_key: GeoapifyKeyDep,
+    keys: GeocodingKeyDep,
     limit: Annotated[int, Query(ge=1, le=1000)] = 100,
 ) -> BackfillResponse:
     """Geocode active locations missing coordinates. Admin only."""
@@ -325,8 +334,12 @@ async def backfill_geocode(
         loc: Location, client: httpx.AsyncClient
     ) -> tuple[int, GeocodingResult | None]:
         async with _geocode_semaphore:
-            return loc.id, await geocode_location_name(
-                loc.name, api_key, address=loc.address, client=client
+            return loc.id, await geocode_with_fallback(
+                loc.name,
+                address=loc.address,
+                google_api_key=keys.google_api_key,
+                geoapify_api_key=keys.geoapify_api_key,
+                client=client,
             )
 
     async with httpx.AsyncClient(timeout=10.0) as http_client:
@@ -420,7 +433,7 @@ async def geocode_location(
     location_id: int,
     db: SessionDep,
     user: CurrentUserDep,
-    api_key: GeoapifyKeyDep,
+    keys: GeocodingKeyDep,
     force: bool = False,
 ) -> GeocodeResponse:
     """Geocode (or re-geocode) a single location."""
@@ -435,8 +448,11 @@ async def geocode_location(
             geocoded=True,
         )
 
-    result = await geocode_location_name(
-        location.name, api_key, address=location.address
+    result = await geocode_with_fallback(
+        location.name,
+        address=location.address,
+        google_api_key=keys.google_api_key,
+        geoapify_api_key=keys.geoapify_api_key,
     )
 
     if result is None:

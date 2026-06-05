@@ -53,7 +53,7 @@ class TestGeocodeLocationTask:
                 return_value=FakeSettings(geoapify_api_key="fake-key"),
             ),
             patch(
-                "api.tasks.geocoding.geocode_location_name",
+                "api.tasks.geocoding.geocode_with_fallback",
                 new_callable=AsyncMock,
                 return_value=GEO_RESULT,
             ) as mock_geocode,
@@ -61,7 +61,10 @@ class TestGeocodeLocationTask:
             await _geocode_location(loc_id)
 
         mock_geocode.assert_called_once_with(
-            "Test Venue", "fake-key", address="Av. Urdaneta 1234"
+            "Test Venue",
+            address="Av. Urdaneta 1234",
+            google_api_key="",
+            geoapify_api_key="fake-key",
         )
 
         loc = await db_session.get(Location, loc_id)
@@ -86,7 +89,7 @@ class TestGeocodeLocationTask:
                 return_value=FakeSettings(geoapify_api_key="fake-key"),
             ),
             patch(
-                "api.tasks.geocoding.geocode_location_name",
+                "api.tasks.geocoding.geocode_with_fallback",
                 new_callable=AsyncMock,
             ) as mock_geocode,
         ):
@@ -111,7 +114,7 @@ class TestGeocodeLocationTask:
                 return_value=FakeSettings(geoapify_api_key="fake-key"),
             ),
             patch(
-                "api.tasks.geocoding.geocode_location_name",
+                "api.tasks.geocoding.geocode_with_fallback",
                 new_callable=AsyncMock,
                 return_value=None,
             ),
@@ -153,7 +156,7 @@ class TestGeocodeLocationTask:
                 return_value=FakeSettings(geoapify_api_key=""),
             ),
             patch(
-                "api.tasks.geocoding.geocode_location_name",
+                "api.tasks.geocoding.geocode_with_fallback",
                 new_callable=AsyncMock,
             ) as mock_geocode,
         ):
@@ -194,8 +197,13 @@ class TestGeocodeLocationCeleryTask:
 
 
 class FakeSettings:
-    def __init__(self, geoapify_api_key: str = ""):
+    def __init__(
+        self,
+        geoapify_api_key: str = "",
+        google_maps_api_key: str = "",
+    ):
         self.geoapify_api_key = geoapify_api_key
+        self.google_maps_api_key = google_maps_api_key
 
 
 class _SessionStub:

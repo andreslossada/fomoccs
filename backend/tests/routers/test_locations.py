@@ -10,7 +10,12 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.database import get_db
-from api.dependencies import create_access_token, get_geoapify_key, hash_password
+from api.dependencies import (
+    GeocodingKeys,
+    create_access_token,
+    get_geocoding_keys,
+    hash_password,
+)
 from api.models.event import Event
 from api.models.location import Location, LocationAlternateName, LocationTag
 from api.models.tag import Tag
@@ -20,7 +25,10 @@ from api.services.geocoding import GeocodingResult
 
 
 def _make_app(
-    db_session: AsyncSession, *, geoapify_key: str = "test-api-key"
+    db_session: AsyncSession,
+    *,
+    geoapify_key: str = "test-api-key",
+    google_key: str = "",
 ) -> FastAPI:
     """Create a minimal FastAPI app with the locations router for testing."""
     app = FastAPI()
@@ -29,11 +37,13 @@ def _make_app(
     async def _override_get_db():
         yield db_session
 
-    async def _override_geoapify_key() -> str:
-        return geoapify_key
+    async def _override_geocoding_keys() -> GeocodingKeys:
+        return GeocodingKeys(
+            google_api_key=google_key, geoapify_api_key=geoapify_key
+        )
 
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_geoapify_key] = _override_geoapify_key
+    app.dependency_overrides[get_geocoding_keys] = _override_geocoding_keys
     return app
 
 
@@ -625,7 +635,10 @@ class TestSoftDeleteLocation:
 # ---------------------------------------------------------------------------
 
 _MOCK_GEO_RESULT = GeocodingResult(
-    lat=10.5069, lng=-66.9147, formatted_address="Plaza Bolívar, Caracas", confidence=0.9
+    lat=10.5069,
+    lng=-66.9147,
+    formatted_address="Plaza Bolívar, Caracas",
+    confidence=0.9,
 )
 
 
@@ -641,7 +654,7 @@ class TestBulkCreateLocations:
             ]
         }
         with patch(
-            "api.routers.locations.geocode_location_name",
+            "api.routers.locations.geocode_with_fallback",
             new_callable=AsyncMock,
             return_value=_MOCK_GEO_RESULT,
         ):
@@ -665,7 +678,7 @@ class TestBulkCreateLocations:
     ) -> None:
         payload = {"locations": [{"name": "With Coords", "lat": 10.48, "lng": -66.90}]}
         mock_geocode = AsyncMock(return_value=_MOCK_GEO_RESULT)
-        with patch("api.routers.locations.geocode_location_name", mock_geocode):
+        with patch("api.routers.locations.geocode_with_fallback", mock_geocode):
             resp = await client.post(
                 "/api/v1/locations/bulk", json=payload, headers=auth_headers
             )
@@ -702,7 +715,7 @@ class TestBulkCreateLocations:
             return None
 
         with patch(
-            "api.routers.locations.geocode_location_name",
+            "api.routers.locations.geocode_with_fallback",
             side_effect=_mock_geocode,
         ):
             resp = await client.post(
@@ -741,7 +754,7 @@ class TestGeocodeLocation:
         await db_session.flush()
 
         with patch(
-            "api.routers.locations.geocode_location_name",
+            "api.routers.locations.geocode_with_fallback",
             new_callable=AsyncMock,
             return_value=_MOCK_GEO_RESULT,
         ):
@@ -780,7 +793,7 @@ class TestGeocodeLocation:
         auth_headers: dict[str, str],
     ) -> None:
         mock_geocode = AsyncMock(return_value=_MOCK_GEO_RESULT)
-        with patch("api.routers.locations.geocode_location_name", mock_geocode):
+        with patch("api.routers.locations.geocode_with_fallback", mock_geocode):
             resp = await client.post(
                 f"/api/v1/locations/{sample_location.id}/geocode?force=true",
                 headers=auth_headers,
@@ -813,7 +826,7 @@ class TestGeocodeLocation:
         await db_session.flush()
 
         with patch(
-            "api.routers.locations.geocode_location_name",
+            "api.routers.locations.geocode_with_fallback",
             new_callable=AsyncMock,
             return_value=None,
         ):
@@ -853,7 +866,7 @@ class TestBackfillGeocode:
         await db_session.flush()
 
         with patch(
-            "api.routers.locations.geocode_location_name",
+            "api.routers.locations.geocode_with_fallback",
             new_callable=AsyncMock,
             return_value=_MOCK_GEO_RESULT,
         ):
@@ -913,7 +926,7 @@ class TestBackfillGeocode:
         await db_session.flush()
 
         with patch(
-            "api.routers.locations.geocode_location_name",
+            "api.routers.locations.geocode_with_fallback",
             new_callable=AsyncMock,
             return_value=_MOCK_GEO_RESULT,
         ):

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     sync_api_key: str = "changeme"
     secret_key: str = "changeme-secret"
     geoapify_api_key: str = ""
+    google_maps_api_key: str = ""
     redis_url: str = "redis://localhost:6379/0"
 
     def model_post_init(self, __context: object) -> None:

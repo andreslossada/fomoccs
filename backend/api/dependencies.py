@@ -150,3 +150,36 @@ async def get_geoapify_key() -> str:
 
 
 GeoapifyKeyDep = Annotated[str, Depends(get_geoapify_key)]
+
+
+class GeocodingKeys:
+    """Container for the configured geocoding provider keys.
+
+    Google is primary; Geoapify is a free safety net. Either may be
+    unconfigured; the flow handles missing keys gracefully.
+    """
+
+    def __init__(self, google_api_key: str, geoapify_api_key: str) -> None:
+        self.google_api_key = google_api_key
+        self.geoapify_api_key = geoapify_api_key
+
+    def has_any(self) -> bool:
+        return bool(self.google_api_key or self.geoapify_api_key)
+
+
+async def get_geocoding_keys() -> GeocodingKeys:
+    """Return configured geocoding provider keys, or 503 if none."""
+    settings = get_settings()
+    keys = GeocodingKeys(
+        google_api_key=settings.google_maps_api_key,
+        geoapify_api_key=settings.geoapify_api_key,
+    )
+    if not keys.has_any():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Geocoding service not configured",
+        )
+    return keys
+
+
+GeocodingKeyDep = Annotated[GeocodingKeys, Depends(get_geocoding_keys)]

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from api.celery_app import celery
 from api.config import get_settings
 from api.models.location import Location
-from api.services.geocoding import geocode_location_name
+from api.services.geocoding import geocode_with_fallback
 from api.task_names import GEOCODE_LOCATION
 
 logger = logging.getLogger(__name__)
@@ -27,9 +27,10 @@ def _make_session() -> async_sessionmaker[AsyncSession]:
 async def _geocode_location(location_id: int) -> None:
     """Fetch location, geocode it, and persist coordinates."""
     settings = get_settings()
-    api_key = settings.geoapify_api_key
-    if not api_key:
-        logger.warning("Geoapify API key not configured, skipping geocoding")
+    google_api_key = settings.google_maps_api_key
+    geoapify_api_key = settings.geoapify_api_key
+    if not google_api_key and not geoapify_api_key:
+        logger.warning("No geocoding provider keys configured, skipping geocoding")
         return
 
     session_factory = _make_session()
@@ -45,8 +46,11 @@ async def _geocode_location(location_id: int) -> None:
             logger.info("Location %d already has coordinates, skipping", location_id)
             return
 
-        result = await geocode_location_name(
-            location.name, api_key, address=location.address
+        result = await geocode_with_fallback(
+            location.name,
+            address=location.address,
+            google_api_key=google_api_key,
+            geoapify_api_key=geoapify_api_key,
         )
 
         if result is None:

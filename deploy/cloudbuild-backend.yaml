@@ -1,0 +1,13 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --platform=linux/amd64
+      - -t
+      - us-central1-docker.pkg.dev/fomoccs-caracas/fomoccs-docker/backend:${SHORT_SHA}
+      - .
+images:
+  - us-central1-docker.pkg.dev/fomoccs-caracas/fomoccs-docker/backend:${SHORT_SHA}
+substitutions:
+  _GIT_SHA: ""
+  SHORT_SHA: latest
