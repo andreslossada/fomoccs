@@ -62,6 +62,9 @@ infrastructure/*.tfstate*
 cookies.txt
 **/cookies.txt
 
+# Backend runtime data
+backend/data/
+
 # Temporary files
 *.tmp
 *.temp

@@ -1,0 +1,166 @@
+/* FomoCCS Admin TUI — global stylesheet (Textual CSS) */
+
+Screen {
+    background: $surface;
+}
+
+Header {
+    background: $panel;
+    color: $text;
+    text-style: bold;
+    dock: top;
+    height: 1;
+}
+
+Footer {
+    background: $panel;
+    dock: bottom;
+    height: 1;
+}
+
+/* Breadcrumb — shows current screen name */
+#breadcrumb {
+    dock: top;
+    height: 1;
+    background: $primary-lighten-1;
+    color: $text;
+    text-style: bold;
+    padding: 0 2;
+    border-bottom: solid $primary;
+}
+
+/* Dashboard grid layout */
+#dashboard-grid {
+    layout: grid;
+    grid-size: 2;
+    grid-gutter: 1;
+    grid-rows: auto;
+    padding: 1;
+}
+
+#dashboard-grid Static {
+    height: auto;
+    padding: 1 2;
+    border: solid $primary;
+    background: $surface;
+    content-align: left top;
+}
+
+/* Horizontal filter bar */
+#filters {
+    height: auto;
+    min-height: 3;
+    padding: 1;
+    background: $panel;
+}
+
+#filters Input {
+    width: 30;
+    margin-right: 2;
+    height: auto;
+    min-height: 1;
+    border: solid $accent;
+}
+
+#filters Label {
+    padding: 0 2;
+    color: $text-muted;
+    content-align: center middle;
+    height: auto;
+    min-height: 1;
+}
+
+#counter {
+    color: $text-muted;
+    text-align: right;
+    width: auto;
+}
+
+/* DataTables */
+DataTable {
+    height: 1fr;
+    border: solid $panel;
+}
+
+DataTable > .datatable--cursor {
+    background: $accent 20%;
+    color: $text;
+}
+
+DataTable > .datatable--header {
+    background: $panel;
+    color: $text;
+    text-style: bold;
+}
+
+/* Detail containers */
+#source-detail,
+#event-detail,
+#location-detail,
+#operations-container,
+#logs-container {
+    padding: 1;
+}
+
+#source-detail Static,
+#event-detail Static,
+#location-detail Static {
+    padding: 1 0;
+}
+
+/* Operations screen */
+#operations-container {
+    align: center middle;
+    padding: 2;
+}
+
+#operations-container Button {
+    margin: 1 0;
+    width: 50;
+}
+
+#ops-output {
+    width: 100%;
+    height: auto;
+    min-height: 5;
+    margin-bottom: 2;
+    border: solid $panel;
+    padding: 1;
+}
+
+/* Logs screen */
+#logs-content {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+#logs-title {
+    padding: 1;
+    text-style: bold;
+}
+
+/* Detail sections with spacing */
+#event-desc,
+#event-occurrences,
+#event-tags,
+#event-urls,
+#event-sources,
+#loc-desc,
+#loc-meta,
+#loc-alt-names,
+#loc-tags,
+#loc-events,
+#source-meta,
+#source-urls,
+#source-config {
+    padding: 0 0 1 0;
+}
+
+/* Dialog overrides */
+ConfirmDialog > Static,
+InputDialog > Static {
+    padding: 2;
+    border: thick $accent;
+    background: $surface;
+    color: $text;
+}
