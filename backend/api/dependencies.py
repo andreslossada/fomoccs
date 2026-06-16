@@ -1,6 +1,8 @@
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -9,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.config import get_settings
 from api.database import get_db
+from api.middleware.token_blocklist import is_blocked
 from api.models.user import User
 
 SessionDep = Annotated[AsyncSession, Depends(get_db)]
@@ -39,21 +42,48 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 ALGORITHM = "HS256"
 
 
-# TODO: Add `exp` claim to JWT tokens once user-facing auth flows are implemented.
-# Currently tokens don't expire — acceptable during migration but must be addressed
-# before production user interactions.
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+
+
 def create_access_token(user_id: int) -> str:
     settings = get_settings()
-    payload = {"sub": str(user_id)}
+    now = datetime.now(UTC)
+    payload = {
+        "sub": str(user_id),
+        "iat": now,
+        "exp": now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        "jti": uuid.uuid4().hex,
+    }
     token: str = jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
     return token
 
 
 def _decode_token(token: str) -> int | None:
-    """Decode a JWT and return the user_id, or None if invalid."""
+    """Decode a JWT and return the user_id, or None if invalid.
+
+    Accepts tokens without ``exp`` (legacy) for backward compatibility.
+    For tokens that have ``exp``, checks the claim manually so that
+    tokens missing it are still accepted.  Also rejects tokens whose
+    ``jti`` has been added to the blocklist (e.g. via logout).
+    """
     settings = get_settings()
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[ALGORITHM],
+            options={"verify_exp": False},
+        )
+        exp = payload.get("exp")
+        if exp is not None:
+            exp_dt = datetime.fromtimestamp(exp, tz=UTC)
+            if datetime.now(UTC) >= exp_dt:
+                return None
+
+        jti = payload.get("jti")
+        if jti is not None and is_blocked(jti):
+            return None
+
         sub = payload.get("sub")
         if sub is None:
             return None
@@ -183,3 +213,26 @@ async def get_geocoding_keys() -> GeocodingKeys:
 
 
 GeocodingKeyDep = Annotated[GeocodingKeys, Depends(get_geocoding_keys)]
+
+
+# ---------------------------------------------------------------------------
+# API key verification (shared between admin / pipeline endpoints)
+# ---------------------------------------------------------------------------
+
+
+async def verify_api_key(
+    request: Request,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+) -> None:
+    """Verify the API key from header (preferred) or query param (legacy)."""
+    key = x_api_key or request.query_params.get("api_key")
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API key required via X-API-Key header or api_key query parameter",
+        )
+    if key != get_settings().sync_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API key",
+        )

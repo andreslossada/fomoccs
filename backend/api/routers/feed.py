@@ -1,10 +1,11 @@
 from datetime import date, timedelta
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload, selectinload
 
 from api.dependencies import SessionDep
+from api.middleware.rate_limit import feed_rate_limit
 from api.models.base import EventStatus
 from api.models.event import Event, EventOccurrence
 from api.models.location import Location
@@ -13,7 +14,10 @@ router = APIRouter(prefix="/feed", tags=["feed"])
 
 
 @router.get("/events")
-async def feed_events(db: SessionDep) -> list[dict[str, object]]:
+async def feed_events(
+    db: SessionDep,
+    _rate: None = Depends(feed_rate_limit),
+) -> list[dict[str, object]]:
     """Return events for the public frontend map (flat JSON array)."""
     today = date.today()
     cutoff = today + timedelta(days=90)
@@ -78,7 +82,10 @@ async def feed_events(db: SessionDep) -> list[dict[str, object]]:
 
 
 @router.get("/locations")
-async def feed_locations(db: SessionDep) -> list[dict[str, object]]:
+async def feed_locations(
+    db: SessionDep,
+    _rate: None = Depends(feed_rate_limit),
+) -> list[dict[str, object]]:
     """Return locations for the public frontend map (flat JSON array)."""
     stmt = (
         select(Location)

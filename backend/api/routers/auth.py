@@ -1,19 +1,34 @@
-from fastapi import APIRouter, HTTPException, Response, status
+from datetime import UTC, datetime
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.security import HTTPAuthorizationCredentials
+from jose import jwt
 from sqlalchemy import func, select
 
-from api.config import get_settings
 from api.dependencies import (
+    ALGORITHM,
     CurrentUserDep,
     SessionDep,
+    _bearer_scheme,
     create_access_token,
     hash_password,
+    verify_api_key,
     verify_password,
 )
+from api.middleware.rate_limit import (
+    admin_rate_limit,
+    login_rate_limit,
+    register_rate_limit,
+)
+from api.middleware.token_blocklist import add_to_blocklist
 from api.models.user import User
 from api.schemas.auth import AuthResponse
 from api.schemas.user import UserCreate, UserLogin, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+_OptionalCreds = Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)]
 
 
 @router.post(
@@ -21,7 +36,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     response_model=AuthResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def register(data: UserCreate, db: SessionDep) -> AuthResponse:
+async def register(
+    data: UserCreate,
+    db: SessionDep,
+    _rate: None = Depends(register_rate_limit),
+) -> AuthResponse:
     existing = await db.scalar(select(User).where(User.email == data.email))
     if existing is not None:
         raise HTTPException(
@@ -42,7 +61,11 @@ async def register(data: UserCreate, db: SessionDep) -> AuthResponse:
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(data: UserLogin, db: SessionDep) -> AuthResponse:
+async def login(
+    data: UserLogin,
+    db: SessionDep,
+    _rate: None = Depends(login_rate_limit),
+) -> AuthResponse:
     user = await db.scalar(select(User).where(User.email == data.email))
     if user is None:
         raise HTTPException(
@@ -64,8 +87,26 @@ async def login(data: UserLogin, db: SessionDep) -> AuthResponse:
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(_user: CurrentUserDep) -> Response:
-    # TODO: implement token blocklist for real logout
+async def logout(
+    _user: CurrentUserDep,
+    credentials: _OptionalCreds,
+) -> Response:
+    """Logout: add the token's jti to the blocklist so it cannot be reused."""
+    if credentials is not None:
+        try:
+            payload = jwt.decode(
+                credentials.credentials,
+                "",
+                algorithms=[ALGORITHM],
+                options={"verify_signature": False},
+            )
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                exp_dt = datetime.fromtimestamp(exp, tz=UTC)
+                add_to_blocklist(jti, exp_dt)
+        except Exception:
+            pass
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -77,17 +118,11 @@ async def me(user: CurrentUserDep) -> UserResponse:
 @router.post("/promote-admin", status_code=status.HTTP_200_OK)
 async def promote_admin(
     email: str,
-    api_key: str,
     db: SessionDep,
+    _api_key: None = Depends(verify_api_key),
+    _rate: None = Depends(admin_rate_limit),
 ) -> dict[str, str]:
     """Promote a user to admin. Secured by SYNC_API_KEY."""
-    settings = get_settings()
-    if api_key != settings.sync_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid API key",
-        )
-
     user = await db.scalar(select(User).where(User.email == email))
     if user is None:
         raise HTTPException(
