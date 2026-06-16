@@ -125,6 +125,20 @@ async def _prep_crawl_result(
                 source_name,
             )
 
+            if not extracted_events:
+                logger.warning(
+                    "CrawlResult %d has 0 extracted events — extraction may have "
+                    "failed. Marking as failed to avoid archiving existing events.",
+                    crawl_result_id,
+                )
+                crawl_result.status = CrawlResultStatus.failed
+                crawl_result.error_message = (
+                    "0 ExtractedEvents — extraction returned no results "
+                    "(likely an API error or empty page)"
+                )
+                await session.commit()
+                return False
+
             for event in extracted_events:
                 location = await resolve_location(
                     session,

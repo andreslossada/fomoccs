@@ -108,13 +108,13 @@ async def trigger_process_crawl_job(job_id: int, api_key: str):
                 if isinstance(parsed, list):
                     events = parsed
                 for evt in events:
+                    raw_loc = evt.get("location", evt.get("location_name", "")) or ""
+                    if isinstance(raw_loc, dict):
+                        raw_loc = raw_loc.get("venue_name", raw_loc.get("name", "")) or ""
                     ee = ExtractedEvent(
                         crawl_result_id=cc.crawl_result_id,
                         name=str(evt.get("name", ""))[:500],
-                        location_name=str(
-                            evt.get("location", evt.get("location_name", ""))
-                            or ""
-                        )[:255],
+                        location_name=str(raw_loc)[:255],
                         sublocation=str(evt.get("sublocation", "") or "")[:255],
                         description=str(evt.get("description", "") or ""),
                         url=str(evt.get("url", "") or "")[:2000],
