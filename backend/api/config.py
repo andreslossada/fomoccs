@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     db_pass: str = ""
 
     sync_api_key: str = "changeme"
+    api_base_url: str = "http://localhost:8000"
     secret_key: str = "changeme-secret"
     geoapify_api_key: str = ""
     google_maps_api_key: str = ""

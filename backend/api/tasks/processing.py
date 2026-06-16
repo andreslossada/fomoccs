@@ -35,7 +35,7 @@ def _make_session() -> async_sessionmaker[AsyncSession]:
 
 
 async def _process_crawl_job(job_id: int) -> None:
-    """Load all extracted CrawlResults for job_id and process each source."""
+    """Prep every extracted CrawlResult, then merge **once** at the end."""
     session_factory = _make_session()
 
     async with session_factory() as session:
@@ -66,16 +66,35 @@ async def _process_crawl_job(job_id: int) -> None:
         job_id,
     )
 
+    processed_count = 0
     for crawl_result in crawl_results:
-        await _process_single_crawl_result(session_factory, crawl_result.id, job_id)
+        ok = await _prep_crawl_result(session_factory, crawl_result.id, job_id)
+        if ok:
+            processed_count += 1
+
+    if processed_count > 0:
+        logger.info(
+            "Job %d: %d CrawlResult(s) prepped — running single merge pass",
+            job_id,
+            processed_count,
+        )
+        async with session_factory() as session:
+            await merge_extracted_events(session, crawl_job_id=job_id)
+            await session.commit()
+            logger.info("Job %d: merge complete", job_id)
+    else:
+        logger.warning("Job %d: no CrawlResults were successfully prepped", job_id)
 
 
-async def _process_single_crawl_result(
+async def _prep_crawl_result(
     session_factory: async_sessionmaker[AsyncSession],
     crawl_result_id: int,
     job_id: int,
-) -> None:
-    """Process one CrawlResult; isolates failures so others continue."""
+) -> bool:
+    """Resolve locations, process tags, set emoji/short_name — no merge.
+
+    Returns True on success, False on failure.
+    """
     async with session_factory() as session:
         try:
             crawl_result = await session.scalar(
@@ -88,7 +107,7 @@ async def _process_single_crawl_result(
             )
             if crawl_result is None:
                 logger.warning("CrawlResult %d not found, skipping", crawl_result_id)
-                return
+                return False
 
             tag_rules = await load_tag_rules(session)
 
@@ -100,7 +119,7 @@ async def _process_single_crawl_result(
             )
 
             logger.info(
-                "Processing %d event(s) for CrawlResult %d (source: %s)",
+                "Prepping %d event(s) for CrawlResult %d (source: %s)",
                 len(extracted_events),
                 crawl_result_id,
                 source_name,
@@ -135,17 +154,16 @@ async def _process_single_crawl_result(
 
             await session.flush()
 
-            await merge_extracted_events(session, crawl_job_id=job_id)
-
             crawl_result.status = CrawlResultStatus.processed
             crawl_result.processed_at = datetime.utcnow()
             await session.commit()
 
             logger.info(
-                "CrawlResult %d (source: %s) processed successfully",
+                "CrawlResult %d (source: %s) prepped successfully",
                 crawl_result_id,
                 source_name,
             )
+            return True
 
         except Exception as exc:
             await session.rollback()
@@ -161,20 +179,21 @@ async def _process_single_crawl_result(
                     await fail_session.commit()
 
             logger.error(
-                "CrawlResult %d failed during processing: %s",
+                "CrawlResult %d failed during prep: %s",
                 crawl_result_id,
                 exc,
                 exc_info=True,
             )
+            return False
 
 
 @celery.task(bind=True, name=PROCESS_CRAWL_JOB)
 def process_crawl_job(self: Any, job_id: int) -> None:
     """Process all extracted CrawlResults for a crawl job.
 
-    Runs the full backend event-processing pipeline (location resolution,
-    tag processing, short name, emoji, dedup/merge/archive) for each
-    extracted CrawlResult. Each source is isolated: a failure marks only
-    that CrawlResult as failed and processing continues for the rest.
+    Prep step (location resolution, tag processing, short name, emoji)
+    runs per CrawlResult with isolation.  Then a single merge/dedup pass
+    runs across the whole job, removing duplicate ``merge_extracted_events``
+    calls that previously dominated processing time.
     """
     asyncio.run(_process_crawl_job(job_id))

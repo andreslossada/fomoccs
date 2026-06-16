@@ -53,18 +53,34 @@ async def trigger_process_crawl_job(job_id: int, api_key: str):
     settings = get_settings()
     if api_key != settings.sync_api_key:
         from fastapi import HTTPException, status
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API key")
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API key",
+        )
+
+    import json as json_mod
+
+    from sqlalchemy import exists, select, update
 
     from api.database import AsyncSessionLocal
-    from api.models.crawl import CrawlResult, CrawlContent, ExtractedEvent, CrawlResultStatus
-    from sqlalchemy import select, update
-    import json as json_mod
+    from api.models.crawl import (
+        CrawlContent,
+        CrawlResult,
+        CrawlResultStatus,
+        ExtractedEvent,
+    )
 
     # Step 1: Parse crawl_contents JSON and create ExtractedEvent records
     created = 0
     async with AsyncSessionLocal() as session:
         stmt = (
-            select(CrawlContent, CrawlResult.crawl_job_id, CrawlResult.source_id)
+            select(
+                CrawlContent,
+                CrawlResult.crawl_job_id,
+                CrawlResult.source_id,
+                CrawlResult.id,
+            )
             .join(CrawlResult, CrawlContent.crawl_result_id == CrawlResult.id)
             .where(
                 CrawlResult.crawl_job_id == job_id,
@@ -75,9 +91,17 @@ async def trigger_process_crawl_job(job_id: int, api_key: str):
         result = await session.execute(stmt)
         rows = result.all()
 
-        for cc, cj_id, source_id in rows:
+        for cc, cj_id, source_id, cr_id in rows:
             if not cc.extracted_content:
                 continue
+
+            # Skip crawl_results that already have ExtractedEvent rows
+            has_events = await session.scalar(
+                select(exists().where(ExtractedEvent.crawl_result_id == cr_id))
+            )
+            if has_events:
+                continue
+
             try:
                 parsed = json_mod.loads(cc.extracted_content)
                 events = parsed.get("events", []) if isinstance(parsed, dict) else []
@@ -87,12 +111,17 @@ async def trigger_process_crawl_job(job_id: int, api_key: str):
                     ee = ExtractedEvent(
                         crawl_result_id=cc.crawl_result_id,
                         name=str(evt.get("name", ""))[:500],
-                        location_name=str(evt.get("location", evt.get("location_name", "")) or "")[:255],
+                        location_name=str(
+                            evt.get("location", evt.get("location_name", ""))
+                            or ""
+                        )[:255],
                         sublocation=str(evt.get("sublocation", "") or "")[:255],
                         description=str(evt.get("description", "") or ""),
                         url=str(evt.get("url", "") or "")[:2000],
                         occurrences=json_mod.dumps(evt.get("occurrences", [])),
-                        tags=json_mod.dumps(evt.get("tags", evt.get("hashtags", [])) or []),
+                        tags=json_mod.dumps(
+                            evt.get("tags", evt.get("hashtags", [])) or []
+                        ),
                         emoji=str(evt.get("emoji", "") or ""),
                     )
                     session.add(ee)
@@ -105,8 +134,9 @@ async def trigger_process_crawl_job(job_id: int, api_key: str):
                 )
                 await session.execute(stmt_update)
             except Exception as e:
-                print(f"Error parsing content for crawl_result {cc.crawl_result_id}: {e}")
-        
+                mid = cc.crawl_result_id
+                print(f"Error parsing extracted content for result {mid}: {e}")
+
         await session.commit()
 
     # Step 2: Process the extracted events
