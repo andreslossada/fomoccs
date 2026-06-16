@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+    <defs>
+        <radialGradient id="glow" cx="32" cy="24" r="18" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="rgb(248,226,85)" stop-opacity="0.3"/>
+            <stop offset="100%" stop-color="rgb(248,226,85)" stop-opacity="0"/>
+        </radialGradient>
+    </defs>
+    <rect width="64" height="64" fill="rgb(15,25,35)"/>
+    <circle cx="32" cy="24" r="18" fill="url(#glow)"/>
+    <path d="M45,24 Q56,24 56,34 Q56,44 45,44" fill="none" stroke="rgb(248,226,85)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M16,14 L16,48 Q16,52 18,54 L38,54 Q40,52 40,48 L40,14 Z" fill="rgb(116,195,165)" fill-rule="nonzero"/>
+    <path d="M16,18 L16,48 Q16,52 18,54 L38,54 Q40,52 40,48 L40,18 Z" fill="rgb(248,226,85)" fill-rule="nonzero"/>
+    <path d="M16,16 Q28,10 40,16 L40,20 Q28,14 16,20 Z" fill="rgb(116,195,165)" fill-rule="nonzero"/>
+    <path d="M16,16 Q28,10 40,16 L40,18 Q28,12 16,18 Z" fill="rgb(248,226,85)" fill-rule="nonzero"/>
+    <ellipse cx="28" cy="17" rx="10" ry="3" fill="rgb(75,125,132)" opacity="0.4"/>
+    <ellipse cx="28" cy="28" rx="6" ry="2" fill="rgb(75,125,132)" opacity="0.15"/>
+</svg>

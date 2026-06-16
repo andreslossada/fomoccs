@@ -8,10 +8,12 @@
         </radialGradient>
     </defs>
     <g transform="matrix(1.6,0,0,1.6,3,20)">
-        <circle cx="42" cy="8" r="14" fill="url(#glow)"/>
-        <path d="M0,64 L0,46 L4,40 L8,34 L12,28 L16,24 L20,20 L24,16 L26,12 L28,16 L30,20 L34,16 L38,12 L42,10 L44,14 L46,20 L50,28 L56,38 L64,46 L64,64 Z" fill="rgb(75,125,132)" fill-rule="nonzero"/>
-        <path d="M0,64 L0,52 L6,46 L10,40 L14,34 L18,30 L22,26 L24,22 L26,18 L28,22 L30,26 L34,22 L38,18 L42,16 L44,20 L46,26 L50,34 L56,44 L64,52 L64,64 Z" fill="rgb(116,195,165)" fill-rule="nonzero"/>
-        <polygon points="42,1 43,4 46.5,4 43.5,6.5 44.5,10 42,8 39.5,10 40.5,6.5 37.5,4 41,4" fill="rgb(248,226,85)" fill-rule="nonzero"/>
+        <circle cx="30" cy="28" r="16" fill="url(#glow)"/>
+        <path d="M42,28 Q56,28 56,38 Q56,50 42,48" fill="none" stroke="rgb(248,226,85)" stroke-width="4" stroke-linecap="round"/>
+        <path d="M14,14 L14,52 Q14,56 18,58 L40,58 Q44,56 44,52 L44,14 Z M14,18 Q28,10 44,18 L44,22 Q28,14 14,22 Z" fill="rgb(75,125,132)" fill-rule="nonzero"/>
+        <path d="M16,18 L16,50 Q16,54 20,56 L38,56 Q42,54 42,50 L42,18 Z" fill="rgb(116,195,165)" fill-rule="nonzero"/>
+        <path d="M16,22 L16,50 Q16,52 20,54 L38,54 Q42,52 42,50 L42,22 Z" fill="rgb(248,226,85)" fill-rule="nonzero"/>
+        <path d="M16,20 Q28,14 42,20 L42,22 Q28,16 16,22 Z" fill="rgb(116,195,165)" fill-rule="nonzero"/>
     </g>
     <g transform="matrix(0.0736961,0,0,0.0714348,-121.976,46.5174)">
         <g transform="matrix(1495.5,0,0,1495.5,2279.88,844.701)">
