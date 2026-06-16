@@ -34,6 +34,7 @@ class EventsScreen(Screen[object]):
         ("c", "cycle_status", "Status"),
         ("r", "refresh", "Refresh"),
         ("n", "load_more", "More"),
+        ("p", "load_less", "Prev"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -166,7 +167,14 @@ class EventsScreen(Screen[object]):
     def action_refresh(self) -> None:
         self.run_worker(self._load_data())
 
+    PAGE_SIZE = 50
+
     def action_load_more(self) -> None:
         if self._offset + len(self._data) < self._total:
             self._offset += len(self._data)
+            self.run_worker(self._load_data())
+
+    def action_load_less(self) -> None:
+        if self._offset > 0:
+            self._offset = max(0, self._offset - self.PAGE_SIZE)
             self.run_worker(self._load_data())

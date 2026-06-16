@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import update
@@ -12,7 +13,11 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Input, Label
 
 from tui.db import count_sources, get_session, list_sources
+from tui.screens.pipeline_run import PipelineRunScreen
+from tui.screens.source_wizard import SourceWizardScreen
 from tui.screens.sources_detail import SourceDetailScreen
+
+VET_TZ = timezone(timedelta(hours=-4))
 
 
 class SourcesScreen(Screen[object]):
@@ -31,11 +36,16 @@ class SourcesScreen(Screen[object]):
         ("escape", "app.pop_screen", "Back"),
         ("/", "focus_search", "Search"),
         ("enter", "view_source", "Detail"),
+        ("e", "edit_source", "Edit"),
+        ("d", "delete_source", "Delete"),
         ("space", "toggle_source", "Toggle"),
+        ("c", "crawl_source", "Crawl"),
+        ("f", "force_crawl", "Force"),
         ("a", "toggle_active_only", "Active"),
         ("t", "cycle_tier", "Tier"),
+        ("n", "new_source", "New"),
         ("r", "refresh", "Refresh"),
-        ("n", "load_more", "More"),
+        ("m", "load_more", "More"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -51,18 +61,20 @@ class SourcesScreen(Screen[object]):
     def on_mount(self) -> None:
         table = self.query_one("#sources-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("ID", "Name", "Type", "Tier", "Trust", "Status")
+        table.add_columns(
+            "ID", "Name", "Type", "Tier", "Website", "Last Crawl", "Events", "Status"
+        )
         self.run_worker(self._load_data())
 
     def _render_table(self) -> None:
         table = self.query_one("#sources-table", DataTable)
         table.clear()
         if self._loading:
-            table.add_row("", "[dim]Loading...[/dim]", "", "", "", "")
+            table.add_row("", "[dim]Loading...[/dim]", "", "", "", "", "", "")
             self.query_one("#counter", Label).update("[dim]Loading...[/dim]")
             return
         if not self._data:
-            table.add_row("", "[dim]No results[/dim]", "", "", "", "")
+            table.add_row("", "[dim]No results[/dim]", "", "", "", "", "", "")
             self.query_one("#counter", Label).update("0 / 0")
             return
         for src in self._data:
@@ -71,12 +83,22 @@ class SourcesScreen(Screen[object]):
                 if src.get("disabled")
                 else "[green]Active[/green]"
             )
+            website = str(src.get("website", ""))[:40]
+            last = src.get("last_crawled_at")
+            if last is not None:
+                last_local = last.replace(tzinfo=UTC).astimezone(VET_TZ)
+                last_str = str(last_local)[:10]
+            else:
+                last_str = "-"
+            events = str(src.get("event_count", 0))
             table.add_row(
                 str(src.get("id", "")),
-                str(src.get("name", ""))[:50],
+                str(src.get("name", ""))[:45],
                 str(src.get("type", "")),
                 str(src.get("tier", "")),
-                str(src.get("trust_level") or "-"),
+                website,
+                last_str,
+                events,
                 status,
             )
         self.query_one("#counter", Label).update(
@@ -102,17 +124,7 @@ class SourcesScreen(Screen[object]):
                 offset=self._offset,
                 limit=50,
             )
-            self._data = [
-                {
-                    "id": s.id,
-                    "name": s.name,
-                    "type": str(s.type),
-                    "tier": s.tier,
-                    "trust_level": s.trust_level,
-                    "disabled": s.disabled,
-                }
-                for s in sources
-            ]
+            self._data = sources
         finally:
             await session.close()
         self._loading = False
@@ -133,28 +145,175 @@ class SourcesScreen(Screen[object]):
             await session.close()
 
     def action_view_source(self) -> None:
-        table = self.query_one("#sources-table", DataTable)
-        row_key = table.cursor_coordinate.row if table.cursor_coordinate else None
-        if self._data and row_key is not None:
-            idx = row_key
-            if idx < len(self._data):
-                source_id = self._data[idx]["id"]
-                if isinstance(source_id, int):
-                    self.app.push_screen(SourceDetailScreen(source_id))
+        src = self._get_selected()
+        if src is not None and isinstance(src["id"], int):
+            self.app.push_screen(SourceDetailScreen(src["id"]))
 
     def action_toggle_source(self) -> None:
+        src = self._get_selected()
+        if src is not None:
+            sid = src["id"]
+            disabled = src["disabled"]
+            if isinstance(sid, int) and isinstance(disabled, bool):
+                self.run_worker(self._toggle_active_source(sid, disabled))
+                src["disabled"] = not disabled
+                self._render_table()
+
+    def action_new_source(self) -> None:
+        self.app.push_screen(SourceWizardScreen())
+
+    def action_edit_source(self) -> None:
+        src = self._get_selected()
+        if src is None:
+            return
+        source_id = src["id"]
+        if not isinstance(source_id, int):
+            return
+        self.app.push_screen(SourceWizardScreen(source_id=source_id, data=src))
+
+    def action_delete_source(self) -> None:
+        src = self._get_selected()
+        if src is None:
+            return
+        source_id = src["id"]
+        source_name = src["name"]
+        if not isinstance(source_id, int):
+            return
+        self.run_worker(self._do_delete(source_id, str(source_name)))
+
+    async def _do_delete(self, source_id: int, source_name: str) -> None:
+        from tui.widgets.confirm_dialog import ConfirmDialog
+
+        confirmed = await self.app.push_screen_wait(
+            ConfirmDialog(f"Delete source '{source_name}'?\n\nThis soft-deletes the source. It can be restored from the DB.")
+        )
+        if not confirmed:
+            return
+
+        from sqlalchemy import text
+
+        session = await get_session()
+        try:
+            await session.execute(
+                text("UPDATE sources SET deleted_at = :now WHERE id = :sid"),
+                {"now": datetime.now(UTC).replace(tzinfo=None), "sid": source_id},
+            )
+            await session.commit()
+            self.app.notify(f"'{source_name}' deleted", severity="information")
+        finally:
+            await session.close()
+        await self._load_data()
+
+    def _get_selected(self) -> dict[str, Any] | None:
         table = self.query_one("#sources-table", DataTable)
         row_key = table.cursor_coordinate.row if table.cursor_coordinate else None
-        if self._data and row_key is not None:
-            idx = row_key
-            if idx < len(self._data):
-                src = self._data[idx]
-                sid = src["id"]
-                disabled = src["disabled"]
-                if isinstance(sid, int) and isinstance(disabled, bool):
-                    self.run_worker(self._toggle_active_source(sid, disabled))
-                    src["disabled"] = not disabled
-                    self._render_table()
+        if not self._data or row_key is None or row_key >= len(self._data):
+            return None
+        return self._data[row_key]
+
+    def action_force_crawl(self) -> None:
+        src = self._get_selected()
+        if src is not None and isinstance(src["id"], int):
+            self.run_worker(self._toggle_force_crawl(src["id"], str(src["name"])))
+
+    async def _toggle_force_crawl(self, source_id: int, source_name: str) -> None:
+        from sqlalchemy import text
+
+        from tui.widgets.confirm_dialog import ConfirmDialog
+
+        session = await get_session()
+        try:
+            # Check current force_crawl status
+            result = await session.execute(
+                text("SELECT force_crawl FROM crawl_configs WHERE source_id = :sid"),
+                {"sid": source_id},
+            )
+            row = result.fetchone()
+            current = bool(row[0]) if row and row[0] else False
+            new_val = not current
+            action = "ENABLE" if new_val else "DISABLE"
+
+            confirmed = await self.app.push_screen_wait(
+                ConfirmDialog(f"{action} force crawl for '{source_name}'?\n\nWhen enabled, this source will be crawled on the next pipeline run regardless of schedule.")
+            )
+            if not confirmed:
+                return
+
+            if row is None:
+                await session.execute(
+                    text(
+                        "INSERT INTO crawl_configs (source_id, crawl_frequency, force_crawl) "
+                        "VALUES (:sid, 10080, TRUE)"
+                    ),
+                    {"sid": source_id},
+                )
+            else:
+                await session.execute(
+                    text(
+                        "UPDATE crawl_configs SET force_crawl = :val WHERE source_id = :sid"
+                    ),
+                    {"val": new_val, "sid": source_id},
+                )
+            await session.commit()
+        finally:
+            await session.close()
+
+    def action_crawl_source(self) -> None:
+        src = self._get_selected()
+        if src is not None and isinstance(src["id"], int):
+            self.run_worker(self._do_crawl(src["id"], str(src["name"])))
+
+    async def _do_crawl(self, source_id: int, source_name: str) -> None:
+        from tui.widgets.confirm_dialog import ConfirmDialog
+
+        confirmed = await self.app.push_screen_wait(
+            ConfirmDialog(f"Crawl '{source_name}'?\n\nThis visits the source website and extracts events.\nMay take 1-3 minutes.")
+        )
+        if not confirmed:
+            return
+
+        import os
+        import sys
+
+        from api.config import get_settings
+
+        settings = get_settings()
+
+        # Use pipeline's own venv Python — avoids uv VIRTUAL_ENV conflicts
+        pipeline_dir = os.path.join(
+            os.path.dirname(__file__), "..", "..", "..", "pipeline"
+        )
+        pipeline_dir = os.path.abspath(pipeline_dir)
+
+        if sys.platform == "win32":
+            python = os.path.join(pipeline_dir, ".venv", "Scripts", "python.exe")
+        else:
+            python = os.path.join(pipeline_dir, ".venv", "bin", "python")
+
+        env: dict[str, str] = {
+            "PYTHONUTF8": "1",
+            "API_BASE_URL": settings.api_base_url,
+            "SYNC_API_KEY": settings.sync_api_key,
+            "REDIS_URL": settings.redis_url,
+        }
+
+        if not os.path.isfile(python):
+
+            self.app.notify(
+                "Pipeline venv not found. Run: cd pipeline && uv sync",
+                severity="error",
+                timeout=10,
+            )
+            return
+
+        self.app.push_screen(
+            PipelineRunScreen(
+                cmd=[python, "main.py", "--ids", str(source_id)],
+                cwd=pipeline_dir,
+                env=env,
+                source_name=source_name,
+            )
+        )
 
     def action_focus_search(self) -> None:
         self.query_one("#search-input", Input).focus()

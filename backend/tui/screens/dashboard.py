@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from textual.app import ComposeResult
@@ -12,14 +12,19 @@ from textual.widgets import Footer, Header, Label, Static
 
 from tui.db import (
     active_crawl_jobs,
+    count_stuck_jobs,
     db_ping,
     events_by_status,
     get_session,
     llm_usage_today,
+    recent_crawl_jobs_for_dashboard,
     recent_events_count,
+    recent_events_for_dashboard,
     sources_by_tier,
     sources_summary,
 )
+
+VET_TZ = timezone(timedelta(hours=-4))
 
 
 class DashboardScreen(Screen[object]):
@@ -44,6 +49,8 @@ class DashboardScreen(Screen[object]):
             yield Static("Loading...", id="events-stats")
             yield Static("Loading...", id="sources")
             yield Static("Loading...", id="llm")
+            yield Static("Loading...", id="recent-events")
+        yield Static("Loading...", id="last-crawls")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -63,6 +70,8 @@ class DashboardScreen(Screen[object]):
             await self._update_events(session)
             await self._update_sources(session)
             await self._update_llm(session)
+            await self._update_recent(session)
+            await self._update_last_crawls(session)
         finally:
             await session.close()
 
@@ -74,19 +83,24 @@ class DashboardScreen(Screen[object]):
 
     async def _update_crawls(self, session: AsyncSession) -> None:
         jobs = await active_crawl_jobs(session)
-        if not jobs:
+        stuck = await count_stuck_jobs(session)
+        if not jobs and not stuck:
             self.query_one("#crawls", Static).update(
-                "[bold]Active Crawls[/bold]\n  [dim]None running[/dim]"
+                "[bold]Active Crawls[/bold]\n  [dim]None[/dim]"
             )
             return
         now = datetime.now(UTC).replace(tzinfo=None)
-        lines: list[str] = [f"[bold]Active Crawls ({len(jobs)})[/bold]"]
-        for job in jobs[:5]:
-            elapsed = ""
-            if job.started_at is not None:
-                delta = int((now - job.started_at).total_seconds())
-                elapsed = f" ({delta}s)"
-            lines.append(f"  #{job.id} [yellow]running[/yellow]{elapsed}")
+        lines: list[str] = []
+        if jobs:
+            lines.append(f"[bold]Active Crawls ({len(jobs)})[/bold]")
+            for job in jobs[:5]:
+                elapsed = ""
+                if job.started_at is not None:
+                    delta = int((now - job.started_at).total_seconds())
+                    elapsed = f" ({delta}s)"
+                lines.append(f"  #{job.id} [yellow]running[/yellow]{elapsed}")
+        if stuck:
+            lines.append(f"[bold][dim]Stuck (>2h): {stuck}[/dim][/bold]")
         self.query_one("#crawls", Static).update("\n".join(lines))
 
     async def _update_events(self, session: AsyncSession) -> None:
@@ -119,6 +133,53 @@ class DashboardScreen(Screen[object]):
             f"  Calls: {calls:,}  In: {inp:,}  Out: {out:,}\n"
             f"  Est. Cost: [bold]${cost:.4f}[/bold]"
         )
+
+    async def _update_recent(self, session: AsyncSession) -> None:
+        events = await recent_events_for_dashboard(session, limit=10)
+        if not events:
+            self.query_one("#recent-events", Static).update(
+                "[bold]Recent Events[/bold]\n  [dim]None yet[/dim]"
+            )
+            return
+        lines = [f"[bold]Recent Events ({len(events)})[/bold]"]
+        for ev in events:
+            emoji = ev.get("emoji") or "•"
+            name = str(ev.get("name", ""))[:40]
+            loc = str(ev.get("location_name", ""))[:20]
+            lines.append(f"  {emoji} {name}")
+            if loc:
+                lines.append(f"    [dim]@{loc}[/dim]")
+        self.query_one("#recent-events", Static).update("\n".join(lines))
+
+    async def _update_last_crawls(self, session: AsyncSession) -> None:
+        jobs = await recent_crawl_jobs_for_dashboard(session, limit=3)
+        if not jobs:
+            self.query_one("#last-crawls", Static).update(
+                "[bold]Last Crawls[/bold]\n  [dim]None yet[/dim]"
+            )
+            return
+        lines = ["[bold]Last Crawls[/bold]"]
+        for job in jobs:
+            status_color = {
+                "completed": "green",
+                "failed": "red",
+                "running": "yellow",
+            }.get(str(job.status), "")
+            extra = ""
+            if job.summary is not None:
+                calls = job.summary.api_calls
+                cost = float(job.summary.estimated_cost)
+                extra = f" — {calls} LLM calls, ${cost:.4f}"
+            if job.started_at is not None:
+                local = job.started_at.replace(tzinfo=UTC).astimezone(VET_TZ)
+                started = str(local)[:16]
+            else:
+                started = "?"
+            lines.append(
+                f"  [{status_color}]#{job.id} {job.status}[/{status_color}]"
+                f" {started}{extra}"
+            )
+        self.query_one("#last-crawls", Static).update("\n".join(lines))
 
     def action_refresh(self) -> None:
         self.refresh_data()

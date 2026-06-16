@@ -6,7 +6,7 @@ layer so there is zero duplication of connection config or model definitions.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select, text
@@ -44,12 +44,29 @@ async def db_ping(session: AsyncSession) -> bool:
 
 
 async def active_crawl_jobs(session: AsyncSession) -> list[CrawlJob]:
+    """Jobs that started in the last 2 hours and are still running."""
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)
     result = await session.execute(
         select(CrawlJob)
-        .where(CrawlJob.status == "running")
+        .where(
+            CrawlJob.status == "running",
+            CrawlJob.started_at >= cutoff,
+        )
         .order_by(CrawlJob.started_at.desc())
     )
     return list(result.scalars().all())
+
+
+async def count_stuck_jobs(session: AsyncSession) -> int:
+    """Count running jobs older than 2 hours (stuck)."""
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)
+    result = await session.scalar(
+        select(func.count(CrawlJob.id)).where(
+            CrawlJob.status == "running",
+            CrawlJob.started_at < cutoff,
+        )
+    )
+    return result or 0
 
 
 async def recent_events_count(session: AsyncSession) -> int:
@@ -105,6 +122,40 @@ async def llm_usage_today(session: AsyncSession) -> dict[str, Any]:
     }
 
 
+async def recent_events_for_dashboard(
+    session: AsyncSession, limit: int = 10
+) -> list[dict[str, Any]]:
+    result = await session.execute(
+        select(
+            Event.id,
+            Event.name,
+            Event.emoji,
+            Event.created_at,
+            Event.status,
+            Location.name.label("location_name"),
+        )
+        .join(Location, Event.location_id == Location.id)
+        .where(Event.deleted_at.is_(None))
+        .order_by(Event.created_at.desc())
+        .limit(limit)
+    )
+    return [dict(row._mapping) for row in result]
+
+
+async def recent_crawl_jobs_for_dashboard(
+    session: AsyncSession, limit: int = 3
+) -> list[CrawlJob]:
+    from sqlalchemy.orm import selectinload
+
+    result = await session.execute(
+        select(CrawlJob)
+        .order_by(CrawlJob.started_at.desc())
+        .limit(limit)
+        .options(selectinload(CrawlJob.summary))
+    )
+    return list(result.scalars().all())
+
+
 async def sources_by_tier(session: AsyncSession) -> dict[int, int]:
     result = await session.execute(
         select(Source.tier, func.count(Source.id))
@@ -137,8 +188,47 @@ async def list_sources(
     active_only: bool = False,
     offset: int = 0,
     limit: int = 50,
-) -> list[Source]:
-    query = select(Source).where(Source.deleted_at.is_(None))
+) -> list[dict[str, Any]]:
+    from api.models.event import EventSource
+    from api.models.source import CrawlConfig, SourceUrl
+
+    url_subq = (
+        select(SourceUrl.url)
+        .where(
+            SourceUrl.source_id == Source.id,
+            SourceUrl.deleted_at.is_(None),
+        )
+        .order_by(SourceUrl.sort_order)
+        .limit(1)
+        .correlate(Source)
+        .scalar_subquery()
+    )
+
+    config_subq = (
+        select(CrawlConfig.last_crawled_at)
+        .where(CrawlConfig.source_id == Source.id)
+        .correlate(Source)
+        .scalar_subquery()
+    )
+
+    event_count_subq = (
+        select(func.count(EventSource.id))
+        .where(
+            EventSource.source_id == Source.id,
+        )
+        .correlate(Source)
+        .scalar_subquery()
+    )
+
+    query = (
+        select(
+            Source,
+            func.coalesce(url_subq, "").label("website"),
+            config_subq.label("last_crawled_at"),
+            func.coalesce(event_count_subq, 0).label("event_count"),
+        )
+        .where(Source.deleted_at.is_(None))
+    )
     if active_only:
         query = query.where(Source.disabled.is_(False))
     if tier is not None:
@@ -148,7 +238,21 @@ async def list_sources(
     result = await session.execute(
         query.order_by(Source.name).offset(offset).limit(limit)
     )
-    return list(result.scalars().all())
+    rows = result.all()
+    return [
+        {
+            "id": row[0].id,
+            "name": row[0].name,
+            "type": str(row[0].type),
+            "tier": row[0].tier,
+            "trust_level": row[0].trust_level,
+            "disabled": row[0].disabled,
+            "website": str(row[1]) if row[1] else "",
+            "last_crawled_at": row[2],
+            "event_count": int(row[3]) if row[3] else 0,
+        }
+        for row in rows
+    ]
 
 
 async def count_sources(
@@ -411,3 +515,30 @@ async def recent_crawl_results(
         .options(selectinload(CrawlResult.source))
     )
     return list(result.scalars().all())
+
+
+# ============================================================================
+# Processing helpers
+# ============================================================================
+
+
+async def count_extracted_results(session: AsyncSession) -> int:
+    result = await session.scalar(
+        select(func.count(CrawlResult.id)).where(
+            CrawlResult.status == "extracted"
+        )
+    )
+    return result or 0
+
+
+async def get_jobs_with_extracted_results(session: AsyncSession) -> list[int]:
+    result = await session.execute(
+        select(CrawlResult.crawl_job_id)
+        .where(
+            CrawlResult.status == "extracted",
+            CrawlResult.crawl_job_id.isnot(None),
+        )
+        .distinct()
+        .order_by(CrawlResult.crawl_job_id)
+    )
+    return [row[0] for row in result.all()]
