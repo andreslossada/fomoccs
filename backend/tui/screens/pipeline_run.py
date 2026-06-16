@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import re
+import time
+
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.screen import Screen
@@ -37,7 +41,7 @@ class PipelineRunScreen(Screen[None]):
         yield Label(f"[bold]Crawling: {label}[/bold]", id="breadcrumb")
         yield Container(
             Static("", id="pipeline-status"),
-            Static("[dim]Starting pipeline...[/dim]", id="pipeline-output"),
+            Static("[dim]Launching pipeline...[/dim]", id="pipeline-output"),
             id="pipeline-container",
         )
         yield Footer()
@@ -51,7 +55,7 @@ class PipelineRunScreen(Screen[None]):
 
         output = self.query_one("#pipeline-output", Static)
         status_bar = self.query_one("#pipeline-status", Static)
-        status_bar.update("[yellow]Running...[/yellow]")
+        status_bar.update("[yellow]Running pipeline...[/yellow]")
 
         merged_env = os.environ.copy()
         merged_env.update(self._env)
@@ -70,73 +74,152 @@ class PipelineRunScreen(Screen[None]):
 
             lines: list[str] = []
             event_count = 0
+            source_count = 0
+            current_step = "booting"
+            t0 = time.time()
+
             while proc.stdout is not None:
-                raw = await proc.stdout.readline()
+                try:
+                    raw = await asyncio.wait_for(
+                        proc.stdout.readline(), timeout=600
+                    )
+                except TimeoutError:
+                    status_bar.update(
+                        "[red]Timed out after 10 min — killing...[/red]"
+                    )
+                    proc.kill()
+                    await proc.wait()
+                    break
+
                 if not raw:
                     break
                 text = raw.decode("utf-8", errors="replace").rstrip()
 
-                # Filter noise
+                # Skip truly noisy lines
                 if any(skip in text for skip in [
                     "RequestsDependencyWarning",
                     "VIRTUAL_ENV",
                     "deprecated",
-                    "CrawlJob ID:",
-                    "STEP",
-                    "======",
+                    "net::ERR_",
+                    "[ERROR]...",
+                    "Invalid URL:",
                 ]):
                     continue
 
-                # Simplify known lines
-                if "processed successfully" in text.lower():
-                    import re
-                    m = re.search(r"(\d+) event", text)
-                    if m:
-                        event_count = int(m.group(1))
-                    status_bar.update("[green]Crawl complete![/green]")
+                # Detect step transitions
+                if "Finding Sources" in text or "STEP 1" in text:
+                    current_step = "scanning"
+                    status_bar.update("[yellow]Scanning for sources...[/yellow]")
+                elif "Crawling Sources" in text or "STEP 2" in text:
+                    current_step = "crawling"
+                    status_bar.update("[yellow]Crawling...[/yellow]")
+                elif "Extracting Events" in text or "STEP 3" in text:
+                    current_step = "extracting"
+                    status_bar.update("[yellow]Extracting events...[/yellow]")
+                elif "STEP 4" in text:
+                    status_bar.update("[yellow]Saving...[/yellow]")
+                elif "PIPELINE COMPLETED" in text:
+                    status_bar.update("[green]Pipeline finished![/green]")
 
-                lines.append(text)
-                if len(lines) > 300:
-                    lines = lines[-300:]
+                # Parse JSON event lines for progress
+                if text.startswith('{"event":'):
+                    try:
+                        evt = json.loads(text)
+                        if evt.get("event") == "source_complete":
+                            source_count += 1
+                            src = evt.get("source_name", "")
+                            elapsed = time.time() - t0
+                            status_bar.update(
+                                f"[yellow]Crawled {source_count} sources "
+                                f"({int(elapsed)}s) — latest: {src[:30]}[/yellow]"
+                            )
+                        elif evt.get("event") == "source_extracted":
+                            cnt = evt.get("events_extracted", 0)
+                            event_count += cnt
+                            src = evt.get("source_name", "")
+                            status_bar.update(
+                                f"[yellow]Extracted {event_count} events "
+                                f"so far — latest: {src[:30]}[/yellow]"
+                            )
+                        elif evt.get("event") == "source_extract_error":
+                            src = evt.get("source_name", "")
+                            err = (evt.get("error", "") or "")[:80]
+                            lines.append(
+                                f"[red]Extraction failed for {src}: {err}[/red]"
+                            )
+                        continue  # don't show raw JSON
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+
+                # Count events from summary line
+                m = re.search(r"(\d+) event", text)
+                if m:
+                    event_count = max(event_count, int(m.group(1)))
+
+                # Show meaningful lines
+                if current_step == "crawling" and any(kw in text for kw in [
+                    "Crawling", "[FETCH]", "[BROWSER]", "JSON API", "crawled",
+                    "source_complete",
+                ]):
+                    pass  # too noisy, skip raw crawl lines
+                elif any(kw in text for kw in [
+                    "STEP 0", "STEP 1", "STEP 2", "STEP 3", "STEP 4", "STEP 5",
+                    "Finding Sources", "Crawling Sources", "Extracting Events",
+                    "Crawl job ID:", "PIPELINE", "Summary:", "events extracted",
+                    "total events:", "API calls", "processed", "prepped",
+                    "extraction error", "timeout", "rate",
+                ]):
+                    lines.append(text)
+                elif len(text.strip()) > 0 and (
+                    "[" not in text or current_step == "extracting"
+                ):
+                    lines.append(text)
+
+                if len(lines) > 200:
+                    lines = lines[-200:]
                 output.update("\n".join(lines))
 
             await proc.wait()
+            elapsed = int(time.time() - t0)
 
             if proc.returncode == 0:
                 status_bar.update(
-                    f"[green]Done — {event_count} events extracted[/green]"
+                    f"[green]Done in {elapsed}s — "
+                    f"{event_count} events extracted[/green]"
                 )
                 self.app.notify(
-                    f"Crawl of '{self._source_name}' finished successfully",
+                    f"Crawl of '{self._source_name}' finished "
+                    f"({event_count} events)",
                     severity="information",
                     timeout=8,
                 )
             else:
                 status_bar.update(
-                    f"[red]Failed (exit code {proc.returncode})[/red]"
+                    f"[red]Failed (exit {proc.returncode})[/red]"
                 )
-                last_line = ""
-                for line in reversed(lines):
-                    if line.strip():
-                        last_line = line.strip()[:100]
-                        break
+                if not lines:
+                    output.update(
+                        "[red]Pipeline produced no output. "
+                        "Common causes:\n"
+                        "- Playwright/Chromium not installed\n"
+                        "- Python encoding issue (need PYTHONUTF8=1)\n"
+                        "- Pipeline .venv missing[/red]"
+                    )
                 self.app.notify(
-                    f"Crawl of '{self._source_name}' failed: {last_line}",
+                    f"Crawl of '{self._source_name}' failed",
                     severity="error",
                     timeout=10,
                 )
 
-            if not lines:
-                output.update("[dim]No output from pipeline[/dim]")
-
         except FileNotFoundError:
             output.update(
-                "[red]Python not found. Is the pipeline venv set up?[/red]"
+                "[red]Python not found. Is the pipeline venv set up?[/red]\n"
+                "[dim]Run: cd pipeline && uv sync[/dim]"
             )
-            status_bar.update("[red]Error[/red]")
+            status_bar.update("[red]Venv not found[/red]")
         except Exception as e:
-            output.update(f"[red]Error: {e}[/red]")
-            status_bar.update("[red]Error[/red]")
+            output.update(f"[red]Error launching pipeline: {e}[/red]")
+            status_bar.update("[red]Launch error[/red]")
 
     def action_rerun(self) -> None:
         output = self.query_one("#pipeline-output", Static)
