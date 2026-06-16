@@ -168,6 +168,19 @@ resource "google_secret_manager_secret" "gemini_api_key" {
 
 # Gemini API key value is added manually in GCP Console → Secret Manager
 
+resource "google_secret_manager_secret" "opencode_go_api_key" {
+  secret_id = "${local.name_prefix}-opencode-go-api-key"
+  labels    = local.labels
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# OpenCode Go API key value is added manually in GCP Console → Secret Manager
+
 # ─── Service Accounts ────────────────────────────────────────────────────────
 
 resource "google_service_account" "backend" {
@@ -208,6 +221,12 @@ resource "google_secret_manager_secret_iam_member" "pipeline_db_password" {
 
 resource "google_secret_manager_secret_iam_member" "pipeline_gemini_key" {
   secret_id = google_secret_manager_secret.gemini_api_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.pipeline.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "pipeline_opencode_go_key" {
+  secret_id = google_secret_manager_secret.opencode_go_api_key.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.pipeline.email}"
 }
@@ -375,6 +394,15 @@ resource "google_cloud_run_v2_job" "pipeline" {
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.gemini_api_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "OPENCODE_GO_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.opencode_go_api_key.secret_id
               version = "latest"
             }
           }
