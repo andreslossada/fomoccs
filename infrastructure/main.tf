@@ -263,7 +263,7 @@ resource "google_cloud_run_v2_service" "backend" {
       }
       env {
         name  = "CORS_ORIGINS"
-        value = "https://storage.googleapis.com"
+        value = "https://storage.googleapis.com,https://fomoccs.vercel.app"
       }
       env {
         name  = "DB_HOST"
