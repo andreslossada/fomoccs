@@ -196,14 +196,14 @@ class OperationsScreen(Screen[object]):
         url = (
             f"{settings.api_base_url}"
             f"/api/v1/admin/process-crawl-job/{job_id}"
-            f"?api_key={settings.sync_api_key}"
         )
+        headers = {"X-API-Key": settings.sync_api_key}
         try:
             if client is not None:
-                resp = await client.post(url)
+                resp = await client.post(url, headers=headers)
             else:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(120)) as cl:
-                    resp = await cl.post(url)
+                    resp = await cl.post(url, headers=headers)
             if resp.status_code == 200:
                 return True, f"Job #{job_id} processed OK"
             return (

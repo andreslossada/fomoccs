@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 
 from api.models.base import LocationType
 from api.schemas.common import TagResponse
@@ -31,7 +31,7 @@ class LocationCreate(BaseModel):
     lng: Annotated[float | None, Field(ge=-180, le=180)] = None
     emoji: Annotated[str | None, Field(max_length=10)] = None
     alt_emoji: Annotated[str | None, Field(max_length=10)] = None
-    website_url: Annotated[str | None, Field(max_length=500)] = None
+    website_url: Annotated[AnyHttpUrl | None, Field(max_length=500)] = None
     type: LocationType = LocationType.venue
     alternate_names: list[str] = []
     tags: list[str] = []
@@ -47,7 +47,7 @@ class LocationUpdate(BaseModel):
     lng: Annotated[float | None, Field(ge=-180, le=180)] = None
     emoji: Annotated[str | None, Field(max_length=10)] = None
     alt_emoji: Annotated[str | None, Field(max_length=10)] = None
-    website_url: Annotated[str | None, Field(max_length=500)] = None
+    website_url: Annotated[AnyHttpUrl | None, Field(max_length=500)] = None
     type: LocationType | None = None
     alternate_names: list[str] | None = None
     tags: list[str] | None = None

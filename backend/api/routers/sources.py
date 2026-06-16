@@ -109,7 +109,7 @@ async def create_source(
     user: CurrentUserDep,
 ) -> SourceDetailResponse:
     # Check for duplicate URLs within the request
-    url_strings = [u.url for u in data.urls]
+    url_strings = [str(u.url) for u in data.urls]
     seen: set[str] = set()
     dupes = [u for u in url_strings if u in seen or seen.add(u)]  # type: ignore[func-returns-value]
     if dupes:
@@ -243,7 +243,7 @@ async def add_source_url(
     # Verify source exists
     await _get_source_or_404(db, source_id)
 
-    await _check_duplicate_urls(db, [data.url])
+    await _check_duplicate_urls(db, [str(data.url)])
 
     url = SourceUrl(
         source_id=source_id,

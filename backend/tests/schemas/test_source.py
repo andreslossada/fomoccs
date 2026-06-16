@@ -29,7 +29,7 @@ from tests.schemas.helpers import (
 
 def test_source_url_create_valid():
     url = SourceUrlCreate(url="https://example.com")
-    assert url.url == "https://example.com"
+    assert str(url.url) == "https://example.com/"
     assert url.js_code is None
     assert url.sort_order == 0
 

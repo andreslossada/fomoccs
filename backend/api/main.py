@@ -1,14 +1,14 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 
 from api.admin import setup_admin
-from api.config import get_settings
+from api.dependencies import verify_api_key
 from api.routers import auth, crawl_jobs, events, feed, locations, sources, tag_rules
 
 app = FastAPI(title="FomoCCS API")
@@ -24,7 +24,7 @@ async def integrity_error_handler(
     )
 
 
-cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
+cors_origins = os.environ.get("CORS_ORIGINS", "").split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,16 +49,10 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/v1/admin/process-crawl-job/{job_id}")
-async def trigger_process_crawl_job(job_id: int, api_key: str):
-    settings = get_settings()
-    if api_key != settings.sync_api_key:
-        from fastapi import HTTPException, status
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid API key",
-        )
-
+async def trigger_process_crawl_job(
+    job_id: int,
+    _api_key: None = Depends(verify_api_key),
+):
     import json as json_mod
 
     from sqlalchemy import exists, select, update

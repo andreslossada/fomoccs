@@ -26,6 +26,18 @@ class Settings(BaseSettings):
         if not self.db_user:
             self.db_user = os.environ.get("USER", "")
 
+        if self.environment == "production":
+            if self.sync_api_key == "changeme":
+                raise ValueError(
+                    "SYNC_API_KEY is required in production. "
+                    "Set the SYNC_API_KEY environment variable."
+                )
+            if self.secret_key == "changeme-secret":
+                raise ValueError(
+                    "SECRET_KEY is required in production. "
+                    "Set the SECRET_KEY environment variable."
+                )
+
     @property
     def database_url(self) -> str:
         userinfo = self.db_user
