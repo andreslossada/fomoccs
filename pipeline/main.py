@@ -380,12 +380,13 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
             # Call backend processing endpoint directly (no Celery needed)
             base = os.getenv("API_BASE_URL", "").rstrip("/")
             api_key = os.getenv("SYNC_API_KEY", "changeme")
-            url = f"{base}/api/v1/admin/process-crawl-job/{crawl_job_id}?api_key={api_key}"
+            url = f"{base}/api/v1/admin/process-crawl-job/{crawl_job_id}"
             print(f"Calling processing endpoint: {url}")
             try:
                 import urllib.request
                 req = urllib.request.Request(url, data=b"", method="POST")
                 req.add_header("Content-Length", "0")
+                req.add_header("X-API-Key", api_key)
                 with urllib.request.urlopen(req, timeout=120) as resp:
                     body = json.loads(resp.read().decode())
                     print(f"Processing result: {body}")

@@ -25,13 +25,13 @@ DB_CONFIG = {
         "host": "aws-1-sa-east-1.pooler.supabase.com",
         "port": 5432,
         "dbname": "postgres",
-        "user": os.environ.get("DB_USER", "postgres.oilbkckdiqlghbiowzgb"),
+        "user": os.environ.get("DB_USER", ""),
         "password": os.environ.get("DB_PASS", ""),
     },
     "production": {
         "host": os.environ.get("PROD_DB_HOST", "localhost"),
         "dbname": os.environ.get("PROD_DB_NAME", "postgres"),
-        "user": os.environ.get("PROD_DB_USER", "postgres.oilbkckdiqlghbiowzgb"),
+        "user": os.environ.get("PROD_DB_USER", ""),
         "password": os.environ.get("PROD_DB_PASS", ""),
     },
 }

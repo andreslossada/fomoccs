@@ -7,10 +7,12 @@ Uses a two-pass approach for large pages (>50 expected events):
 2. Second pass: Enrich events with descriptions, hashtags, and emoji in batches
 
 Provider chain (in priority order):
-1. Gemini 2.5 Flash (best quality, 5 RPM / 20 RPD free)
-2. Gemini 2.5 Flash-Lite (same key, 1,500 RPD = 75x more quota)
-3. OpenRouter free model (env-configurable, separate provider)
-4. xAI Grok (env-configurable, separate provider)
+1. OpenCode Go DeepSeek V4 Flash (primary, subscription with generous limits)
+2. Gemini 2.5 Flash (best quality, 5 RPM / 20 RPD free)
+3. Gemini 2.5 Flash-Lite (same key, 1,500 RPD = 75x more quota)
+4. OpenRouter free model (env-configurable, separate provider)
+5. Groq free model (env-configurable, separate provider)
+6. xAI Grok (env-configurable, separate provider)
 
 When a provider hits 429 or 413 (TPM exceeded), we mark it exhausted and
 try the next. 429 = requests/minute or tokens/day, 413 = tokens/minute for
@@ -117,14 +119,33 @@ def _build_provider_chain() -> list[ProviderConfig]:
     """Construct the ordered fallback chain from environment variables."""
     chain: list[ProviderConfig] = []
 
-    # --- Gemini (primary) ---
+    # --- OpenCode Go (primary — subscription with generous limits) ---
+    go_key = os.environ.get("OPENCODE_GO_API_KEY", "")
+    if go_key:
+        go_client = openai.AsyncOpenAI(
+            api_key=go_key,
+            base_url="https://opencode.ai/zen/go/v1",
+        )
+        chain.append(
+            ProviderConfig(
+                label="opencode-go",
+                client=go_client,
+                model="deepseek-v4-flash",
+                rpm=100,
+                delay=0.6,
+                input_price_per_token=0.14 / 1_000_000,
+                output_price_per_token=0.28 / 1_000_000,
+            )
+        )
+
+    # --- Gemini ---
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     if gemini_key:
         gemini_client = openai.AsyncOpenAI(
             api_key=gemini_key,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         )
-        # Provider 1: gemini-2.5-flash (5 RPM, 20 RPD free)
+        # Gemini Flash (5 RPM, 20 RPD free)
         chain.append(
             ProviderConfig(
                 label="gemini-flash",
@@ -136,7 +157,7 @@ def _build_provider_chain() -> list[ProviderConfig]:
                 output_price_per_token=0.40 / 1_000_000,
             )
         )
-        # Provider 2: gemini-2.5-flash-lite (higher RPM, 1,500 RPD)
+        # Gemini Flash-Lite (higher RPM, 1,500 RPD)
         chain.append(
             ProviderConfig(
                 label="gemini-flash-lite",
@@ -279,16 +300,28 @@ async def _call_with_fallback(
             last_error = e
             continue
         except openai.BadRequestError as e:
+            status = getattr(e, "status_code", None)
             # 413 (TPM exceeded) from Groq-style providers comes through as a
             # BadRequestError, not a RateLimitError. Treat it the same way:
             # cooldown the provider and move to the next one.
-            if getattr(e, "status_code", None) == 413:
+            if status == 413:
                 cooldown = _detect_cooldown_seconds(e)
                 provider.exhausted_until = time.time() + cooldown
                 provider.total_rate_limited += 1
                 print(
                     f"    - {provider.label} 413 → cooldown {cooldown}s "
                     f"(attempt {label})"
+                )
+                last_error = e
+                continue
+            # 400 (unsupported request — e.g. images on a text-only model, or
+            # a feature the provider doesn't implement). Fall through to the
+            # next provider instead of failing the entire extraction.
+            if status == 400:
+                provider.total_errors += 1
+                print(
+                    f"    - {provider.label} 400 → unsupported, "
+                    f"falling through (attempt {label})"
                 )
                 last_error = e
                 continue
