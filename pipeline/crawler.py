@@ -649,6 +649,176 @@ async def crawl_json_api(
         return None, None
 
 
+async def crawl_instagram(
+    source: dict[str, Any],
+    cursor: PgCursor,
+    connection: PgConnection,
+    crawl_job_id: int,
+) -> int | None:
+    """Crawl an Instagram profile and extract posts as readable text.
+
+    Uses Playwright to scrape the profile, then formats posts as plain text
+    that the LLM extractor can process. Requires Instagram cookies for auth.
+
+    Config (from source's ``json_api_config``):
+        username: Instagram username to scrape (required)
+        max_posts: Maximum posts to harvest (default 20)
+    """
+    import os
+
+    name = source["name"]
+    config = source.get("json_api_config", {})
+    source_id = source.get("id")
+    started_at = asyncio.get_event_loop().time()
+
+    username = config.get("username")
+    if not username:
+        print(f"  Skipping {name}: no Instagram username in config")
+        return None
+
+    max_posts = int(config.get("max_posts", 20))
+
+    cookies_path = os.getenv(
+        "INSTAGRAM_COOKIES_PATH",
+        os.path.expanduser("~/.config/fomoccs/instagram_cookies.txt"),
+    )
+
+    # Create crawl result record
+    crawl_result_id = db.create_crawl_result(
+        cursor, connection, crawl_job_id, source["id"]
+    )
+
+    try:
+        print(f"  Harvesting Instagram: @{username} (max {max_posts} posts)...")
+
+        from instagram import harvest_profile
+
+        profile_info, posts = await harvest_profile(
+            username=username,
+            max_posts=max_posts,
+            cookies_path=cookies_path if os.path.exists(cookies_path) else None,
+        )
+
+        if profile_info.get("error"):
+            error_msg = profile_info["error"]
+            print(f"    - Instagram error: {error_msg}")
+            db.update_crawl_result_failed(
+                cursor, connection, crawl_result_id,
+                f"Instagram: {error_msg}",
+            )
+            db.update_source_last_crawled(cursor, connection, source["id"])
+            log_event(
+                "source_error",
+                source_id=source_id,
+                source_name=name,
+                crawl_result_id=crawl_result_id,
+                mode="instagram",
+                error=error_msg,
+                error_type="InstagramError",
+                duration_ms=int(
+                    (asyncio.get_event_loop().time() - started_at) * 1000
+                ),
+            )
+            return None
+
+        # Format posts as readable text for the LLM extractor
+        lines = [
+            f"Instagram Profile: @{username}",
+        ]
+        if profile_info.get("full_name"):
+            lines.append(f"Name: {profile_info['full_name']}")
+        if profile_info.get("bio"):
+            lines.append(f"Bio: {profile_info['bio']}")
+        lines.append(f"Posts harvested: {len(posts)}")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+        for i, post in enumerate(posts, 1):
+            lines.append(f"Post {i}:")
+            if post.get("posted_at"):
+                lines.append(f"  Date: {post['posted_at']}")
+            if post.get("location_name"):
+                lines.append(f"  Location: {post['location_name']}")
+            if post.get("caption"):
+                lines.append(f"  Caption: {post['caption']}")
+            if post.get("url"):
+                lines.append(f"  URL: {post['url']}")
+            lines.append("")
+
+        content = "\n".join(lines)
+        content_bytes = len(content.encode("utf-8"))
+
+        if content_bytes < MIN_CRAWL_CONTENT_SIZE:
+            db.update_crawl_result_failed(
+                cursor, connection, crawl_result_id,
+                "Content too small after formatting",
+            )
+            db.update_source_last_crawled(cursor, connection, source["id"])
+            log_event(
+                "source_error",
+                source_id=source_id,
+                source_name=name,
+                crawl_result_id=crawl_result_id,
+                mode="instagram",
+                error="ContentTooSmall",
+                error_type="ContentTooSmall",
+                duration_ms=int(
+                    (asyncio.get_event_loop().time() - started_at) * 1000
+                ),
+            )
+            return None
+
+        db.update_crawl_result_crawled(
+            cursor, connection, crawl_result_id, content
+        )
+        db.update_source_last_crawled(cursor, connection, source["id"])
+
+        log_event(
+            "source_complete",
+            source_id=source_id,
+            source_name=name,
+            crawl_result_id=crawl_result_id,
+            mode="instagram",
+            urls_crawled=len(posts),
+            content_bytes=content_bytes,
+            event_count=len(posts),
+            duration_ms=int(
+                (asyncio.get_event_loop().time() - started_at) * 1000
+            ),
+        )
+
+        print(
+            f"    - Harvested {len(posts)} posts "
+            f"({content_bytes} bytes) from @{username}"
+        )
+        return crawl_result_id
+
+    except Exception as e:
+        error_msg = f"{type(e).__name__}: {e}"
+        print(f"    - Instagram crawl failed: {error_msg}")
+        try:
+            db.update_crawl_result_failed(
+                cursor, connection, crawl_result_id, error_msg
+            )
+            db.update_source_last_crawled(cursor, connection, source["id"])
+        except Exception:
+            pass
+        log_event(
+            "source_error",
+            source_id=source_id,
+            source_name=name,
+            crawl_result_id=crawl_result_id,
+            mode="instagram",
+            error=error_msg,
+            error_type=type(e).__name__,
+            duration_ms=int(
+                (asyncio.get_event_loop().time() - started_at) * 1000
+            ),
+        )
+        return None
+
+
 def _build_crawl_config_kwargs(source: dict[str, Any]) -> dict[str, Any]:
     """Build CrawlerRunConfig kwargs from source settings.
 

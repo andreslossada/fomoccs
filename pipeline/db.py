@@ -114,8 +114,7 @@ def get_sources_due_for_crawling(cursor, source_ids=None, tier=None):
             WHERE s.id IN ({placeholders})
               AND s.deleted_at IS NULL
             GROUP BY s.id, s.name, s.tier, s.min_request_interval_seconds, cc.id
-            HAVING STRING_AGG(su.url, '') IS NOT NULL OR cc.crawl_mode = 'json_api'
-            ORDER BY s.id ASC
+            HAVING STRING_AGG(su.url, '') IS NOT NULL OR cc.crawl_mode IN ('json_api', 'instagram')
         """,
             source_ids,
         )
@@ -156,7 +155,7 @@ def get_sources_due_for_crawling(cursor, source_ids=None, tier=None):
               {tier_clause}
               {cadence_clause}
             GROUP BY s.id, s.name, s.tier, s.min_request_interval_seconds, cc.id
-            HAVING STRING_AGG(su.url, '') IS NOT NULL OR cc.crawl_mode = 'json_api'
+            HAVING STRING_AGG(su.url, '') IS NOT NULL OR cc.crawl_mode IN ('json_api', 'instagram')
             ORDER BY cc.force_crawl DESC, cc.last_crawled_at ASC NULLS FIRST
         """,
             params,

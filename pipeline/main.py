@@ -121,6 +121,7 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
 
         # Split sources by crawl mode
         json_api_sources = [s for s in sources if s.get("crawl_mode") == "json_api"]
+        instagram_sources = [s for s in sources if s.get("crawl_mode") == "instagram"]
         browser_sources = [
             s for s in sources if s.get("crawl_mode", "browser") == "browser"
         ]
@@ -128,7 +129,11 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
         for s in sources:
             mode = s.get("crawl_mode", "browser")
             url_count = len(s.get("urls", []))
-            print(f"  - {s['name']} ({url_count} URL(s), mode={mode})")
+            if mode == "instagram":
+                ig_user = (s.get("json_api_config") or {}).get("username", "?")
+                print(f"  - {s['name']} (@{ig_user}, mode=instagram)")
+            else:
+                print(f"  - {s['name']} ({url_count} URL(s), mode={mode})")
 
         # Create crawl job
         crawl_job_id = db.create_crawl_job(cursor, connection)
@@ -149,10 +154,12 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
                 s.get("use_stealth") if s.get("use_stealth") is not None else False,
             )
 
-        # Unified queue — JSON API first (fast), then browser, then extract-only
+        # Unified queue — JSON API first (fast), then Instagram, then browser, then extract-only
         queue = asyncio.Queue()
         for source in json_api_sources:
             await queue.put({"type": "json_api", "source": source})
+        for source in instagram_sources:
+            await queue.put({"type": "instagram", "source": source})
         for source in browser_sources:
             await queue.put({"type": "browser", "source": source})
         for r in incomplete_crawled:
@@ -166,9 +173,15 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
                 }
             )
 
-        queued = len(json_api_sources) + len(browser_sources) + len(incomplete_crawled)
+        queued = (
+            len(json_api_sources)
+            + len(instagram_sources)
+            + len(browser_sources)
+            + len(incomplete_crawled)
+        )
         print(
             f"  Queued {queued} items ({len(json_api_sources)} JSON API, "
+            f"{len(instagram_sources)} Instagram, "
             f"{len(browser_sources)} browser, "
             f"{len(incomplete_crawled)} extract-only)\n"
         )
@@ -211,6 +224,52 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
                             finally:
                                 cur.close()
                                 conn.close()
+
+                        elif type_ == "instagram":
+                            source = item["source"]
+                            conn = db.create_connection()
+                            if not conn:
+                                continue
+                            cur = conn.cursor()
+                            try:
+                                result_id = await crawler.crawl_instagram(
+                                    source, cur, conn, crawl_job_id
+                                )
+                            except Exception as e:
+                                print(
+                                    f"    - Error crawling {source['name']}: {e}"
+                                )
+                                result_id = None
+                            finally:
+                                cur.close()
+                                conn.close()
+
+                            if result_id:
+                                crawl_results.append((result_id, source))
+
+                                # Extract immediately — same LLM pipeline
+                                conn = db.create_connection()
+                                if conn:
+                                    cur = conn.cursor()
+                                    try:
+                                        success, t = await extractor.extract_events(
+                                            cur,
+                                            conn,
+                                            result_id,
+                                            source["name"],
+                                            source.get("notes", ""),
+                                        )
+                                        conn.commit()
+                                        tracker.merge(t)
+                                        if success:
+                                            results.append((result_id, source))
+                                    except Exception as e:
+                                        print(
+                                            f"    - Error extracting {source['name']}: {e}"
+                                        )
+                                    finally:
+                                        cur.close()
+                                        conn.close()
 
                         elif type_ == "browser":
                             source = item["source"]
@@ -326,7 +385,10 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
 
         print(
             f"\nProcessed {len(extracted_results)} source(s) "
-            f"({len(crawl_results)} browser crawled)\n"
+            f"({len(crawl_results)} crawled: "
+            f"{len([r for r in crawl_results if r[1].get('crawl_mode') == 'browser'])} browser, "
+            f"{len(json_api_sources)} JSON API, "
+            f"{len(instagram_sources)} Instagram)\n"
         )
 
         # Save token usage summary, mark crawl job complete, publish to backend
@@ -367,7 +429,12 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
         print(f"{'=' * 60}\n")
 
         print("Summary:")
-        print(f"  - Sources crawled: {len(crawl_results) + len(json_api_sources)}")
+        total_crawled = (
+            len(crawl_results)
+            + len(json_api_sources)
+            + len(instagram_sources)
+        )
+        print(f"  - Sources crawled: {total_crawled}")
         if incomplete_crawled:
             print(f"  - Resumed extractions: {len(incomplete_crawled)}")
         print(f"  - Events extracted: {len(extracted_results)}")

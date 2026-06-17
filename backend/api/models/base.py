@@ -20,6 +20,7 @@ class SourceType(enum.StrEnum):
 class CrawlMode(enum.StrEnum):
     browser = "browser"
     json_api = "json_api"
+    instagram = "instagram"
 
 
 class CrawlJobStatus(enum.StrEnum):
