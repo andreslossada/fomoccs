@@ -2,17 +2,34 @@
 Bulk add new sources, URLs, and locations from the user-provided list.
 Only inserts entries that don't already exist in the DB.
 """
+import os
+import sys
+
 import psycopg2
 from psycopg2.extras import execute_values
 
-DB_CONFIG = {
-    "host": "aws-1-sa-east-1.pooler.supabase.com",
-    "port": 5432,
-    "dbname": "postgres",
-    "user": "postgres.oilbkckdiqlghbiowzgb",
-    "password": "x0lTUqlNfmvPjrcJ",
-    "sslmode": "require",
-}
+
+def _get_db_config():
+    """Build DB config from environment variables."""
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        return db_url
+
+    required = ["PROD_DB_HOST", "PROD_DB_NAME", "PROD_DB_USER", "PROD_DB_PASS"]
+    missing = [v for v in required if not os.getenv(v)]
+    if missing:
+        print(f"Missing environment variables: {', '.join(missing)}")
+        print("Set DATABASE_URL or PROD_DB_* variables.")
+        sys.exit(1)
+
+    return {
+        "host": os.getenv("PROD_DB_HOST"),
+        "port": int(os.getenv("PROD_DB_PORT", "5432")),
+        "dbname": os.getenv("PROD_DB_NAME"),
+        "user": os.getenv("PROD_DB_USER"),
+        "password": os.getenv("PROD_DB_PASS"),
+        "sslmode": "require",
+    }
 
 # =============================================================================
 # NEW SOURCES with their URLs and tiers
@@ -127,7 +144,11 @@ NEW_LOCATIONS = [
 
 
 def main():
-    conn = psycopg2.connect(**DB_CONFIG)
+    config = _get_db_config()
+    if isinstance(config, str):
+        conn = psycopg2.connect(config)
+    else:
+        conn = psycopg2.connect(**config)
     cur = conn.cursor()
 
     # ── Phase 1: Insert new sources ──
