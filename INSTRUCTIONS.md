@@ -88,15 +88,21 @@ uv run main.py --limit 5
 
 When `--ids` is used, `crawl_frequency` is ignored — those sources are always crawled.
 
-## Pipeline Steps
+## Pipeline Steps (3-step flow)
+
+The pipeline **only crawls and extracts**. Post-extraction processing (dedup, merge,
+location resolution, geocoding, tag rules) happens in the backend Celery worker.
 
 ```
-STEP 0: Resume incomplete crawl results from previous runs
-STEP 1: Find sources due for crawling
-STEP 2: Crawl sources (browser or JSON API)
-STEP 3: Extract events with Gemini AI
-STEP 4: Process & enrich events (locations, tags, dates)
-STEP 5: Merge into final events table & archive outdated
+STEP 0: Resume incomplete crawl results from prior runs
+STEP 1: Find sources due for crawling (respects crawl_frequency + tier)
+STEP 2: Streaming crawl + extract (browser or JSON API) — workers interleave
+        crawling and LLM extraction for maximum throughput
+  HANDOFF: Publish crawl_job_id to backend via Celery (or direct HTTP)
+           → backend/api/tasks/processing.py picks it up
+           → backend/api/services/event_processing.py enriches events
+           → backend/api/services/event_merging.py deduplicates into final table
+           → backend/api/tasks/geocoding.py geocodes new locations
 ```
 
 ### Data Flow
@@ -104,29 +110,42 @@ STEP 5: Merge into final events table & archive outdated
 ```
 sources + source_urls + crawl_configs
      ↓
-[Crawl] → crawl_contents.crawled_content
+[Crawl / pipeline/crawler.py] → crawl_contents.crawled_content
      ↓
-[Extract] → crawl_contents.extracted_content
+[Extract / pipeline/extractor.py] → crawl_contents.extracted_content (JSON)
      ↓
-[Process] → extracted_events (with occurrences, tags, location_id)
+[HANDOFF — Celery task or direct HTTP POST]
      ↓
-[Merge] → events + event_occurrences + event_urls + event_tags + event_sources
+[Process / backend/api/services/event_processing.py] → extracted_events
+     ↓
+[Merge / backend/api/services/event_merging.py] → events + event_occurrences
+                                                    + event_urls + event_tags
+                                                    + event_sources + locations
 ```
 
 ## Module Structure
 
 ```
-pipeline/
-├── main.py               # Orchestrator — runs all 5 steps
-├── crawler.py             # Web crawling (browser + JSON API modes)
-├── extractor.py           # Gemini AI event extraction
-├── processor.py           # Event enrichment (locations, tags, dates)
-├── merger.py              # Deduplication & merging into final events
-├── location_resolver.py   # Auto-creates locations from JSON API data
-├── db.py                  # Database operations
-├── exporter.py            # JSON export
+pipeline/                          # Crawl + LLM extraction only
+├── main.py                        # Orchestrator (crawl → extract → handoff)
+├── crawler.py                     # Crawl4AI browser + JSON API crawler
+├── extractor.py                   # Multi-provider LLM extraction chain
+├── db.py                          # Pipeline DB helpers (psycopg2)
+├── celery_publisher.py            # Thin Celery publisher (Redis broker)
+├── task_names.py                  # Shared task-name constants
+├── Dockerfile                     # Multi-stage build (Chromium + Xvfb)
 └── tests/
-    └── test_processor.py
+
+backend/api/                       # Post-extraction processing (FastAPI + Celery)
+├── services/
+│   ├── event_processing.py        # Parse extracted JSON → create extracted_events rows
+│   ├── event_merging.py           # Deduplicate extracted_events → merge into events table
+│   ├── geocoding.py               # Google Places + Geoapify geocoding
+│   └── tags.py                    # Tag rule application
+├── tasks/
+│   ├── processing.py              # Celery task: process_crawl_job
+│   └── geocoding.py               # Celery task: geocode_location
+└── task_names.py                  # Task name constants (mirrored in pipeline/task_names.py)
 ```
 
 ## Database Tables
