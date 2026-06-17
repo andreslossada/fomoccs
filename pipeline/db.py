@@ -55,6 +55,11 @@ def create_connection():
             dbname=config["dbname"],
             user=config["user"],
             password=config["password"],
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=5,
+            connect_timeout=10,
         )
         conn.autocommit = False
         return conn

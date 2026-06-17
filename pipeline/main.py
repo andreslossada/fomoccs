@@ -4,7 +4,8 @@ Event Processing Pipeline
 Orchestrates the scraping and extraction workflow:
 
 1. Crawl - Query sources table, crawl due sites, store in crawl_results
-2. Extract - Use Gemini AI to extract structured event data
+2. Stream - Each worker crawls a source then immediately extracts events
+   (OpenCode Go → Gemini → ...), overlapping I/O across sources
 3. Handoff - Publish crawl_job_id to backend Celery task for processing/merging
 
 Usage:
@@ -57,9 +58,9 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
 
     cursor = connection.cursor()
 
-    # Per-hostname throttle — shared across all workers in this run so they
-    # coordinate (e.g., 5 concurrent workers won't all hit the same origin
-    # back-to-back). Honors per-source override and tier defaults.
+    # Per-hostname throttle — shared across all streaming workers in this run
+    # so they coordinate per-domain request pacing. Honors per-source override
+    # and tier defaults.
     throttle = crawler.HostnameThrottle()
 
     try:
@@ -133,44 +134,13 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
         crawl_job_id = db.create_crawl_job(cursor, connection)
         print(f"\nCrawl job ID: {crawl_job_id}")
 
-        # STEP 2: Crawl sources
+        # STEP 2: Streaming Processing (crawl → extract per source)
         print(f"\n{'=' * 60}")
-        print("STEP 2: Crawling Sources")
+        print("STEP 2: Processing Sources (crawl + extract)")
         print(f"{'=' * 60}")
 
-        # Number of concurrent workers per browser batch for crawling and extraction
-        # Tunable via PIPELINE_CONCURRENCY env var. Per-hostname throttling in the
-        # crawler ensures we don't hammer the same origin even with high concurrency.
-        num_workers = int(os.getenv("PIPELINE_CONCURRENCY", "5"))
+        num_workers = int(os.getenv("PIPELINE_CONCURRENCY", "2"))
 
-        crawl_results = []
-        extracted_results = []
-
-        # Crawl JSON API sources first (fast, no browser needed)
-        if json_api_sources:
-            print(f"\n  JSON API crawling ({len(json_api_sources)} site(s))...")
-            for source in json_api_sources:
-                conn = db.create_connection()
-                if not conn:
-                    continue
-                cur = conn.cursor()
-                try:
-                    result_id, _raw_data = await crawler.crawl_json_api(
-                        source, cur, conn, crawl_job_id, throttle=throttle
-                    )
-                    if result_id:
-                        # JSON API sources are directly mapped to extracted;
-                        # route them past the Gemini extraction queue.
-                        extracted_results.append((result_id, source))
-                except Exception as e:
-                    print(f"    - Error crawling {source['name']}: {e}")
-                finally:
-                    cur.close()
-                    conn.close()
-
-        # Group sources by browser settings (text_mode, light_mode, use_stealth)
-        # These are browser-level settings, so sources with different settings
-        # need separate browser instances
         def get_browser_key(s):
             """Group key from browser-level settings (defaults: text=True, light=True, stealth=False)."""
             return (
@@ -179,188 +149,185 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
                 s.get("use_stealth") if s.get("use_stealth") is not None else False,
             )
 
-        source_batches = {}
+        # Unified queue — JSON API first (fast), then browser, then extract-only
+        queue = asyncio.Queue()
+        for source in json_api_sources:
+            await queue.put({"type": "json_api", "source": source})
         for source in browser_sources:
-            key = get_browser_key(source)
-            source_batches.setdefault(key, []).append(source)
-
-        for (
-            text_mode,
-            light_mode,
-            use_stealth,
-        ), batch_sources in source_batches.items():
-            if len(source_batches) > 1:
-                stealth_str = ", stealth=True" if use_stealth else ""
-                print(
-                    f"\n  Batch: text_mode={text_mode}, light_mode={light_mode}{stealth_str} ({len(batch_sources)} sites)"
-                )
-
-            browser_config = crawler.get_browser_config(
-                text_mode=text_mode, light_mode=light_mode, use_stealth=use_stealth
-            )
-
-            async with AsyncWebCrawler(config=browser_config) as web_crawler:
-                # Worker pool pattern: maintain N concurrent crawlers at all times
-                queue = asyncio.Queue()
-
-                # Fill the queue with batch sources
-                for source in batch_sources:
-                    await queue.put(source)
-
-                async def worker():
-                    """Worker that continuously pulls from queue until empty."""
-                    results = []
-                    while True:
-                        try:
-                            source = queue.get_nowait()
-                        except asyncio.QueueEmpty:
-                            break
-
-                        conn = db.create_connection()
-                        if not conn:
-                            queue.task_done()
-                            continue
-                        cur = conn.cursor()
-                        try:
-                            result_id = await crawler.crawl_source(
-                                web_crawler, source, cur, conn, crawl_job_id,
-                                throttle=throttle,
-                            )
-                            if result_id:
-                                results.append((result_id, source))
-                        except Exception as e:
-                            print(f"    - Error crawling {source['name']}: {e}")
-                        finally:
-                            cur.close()
-                            conn.close()
-                            queue.task_done()
-                    return results
-
-                # Start N workers and wait for all to complete
-                worker_results = await asyncio.gather(
-                    *[worker() for _ in range(num_workers)]
-                )
-
-                # Flatten results from all workers
-                for results in worker_results:
-                    crawl_results.extend(results)
-
-        total_crawled = len(crawl_results) + len(extracted_results)
-        print(
-            f"\nCrawled {total_crawled} source(s) ({len(extracted_results)} pre-extracted via JSON API)\n"
-        )
-
-        # STEP 3: Extract events using Gemini AI
-        print(f"{'=' * 60}")
-        print("STEP 3: Extracting Events with Gemini AI")
-        print(f"{'=' * 60}")
-
-        # Build list of all items to extract
-        extraction_queue = []
-
-        # Add incomplete 'crawled' results from previous runs
+            await queue.put({"type": "browser", "source": source})
         for r in incomplete_crawled:
-            extraction_queue.append(
+            await queue.put(
                 {
+                    "type": "extract_only",
                     "crawl_result_id": r["crawl_result_id"],
                     "name": r["name"],
                     "notes": r.get("notes", ""),
                     "started_at": r.get("started_at"),
-                    "source": "incomplete",
                 }
             )
 
-        # Add newly crawled results
-        for crawl_result_id, source in crawl_results:
-            extraction_queue.append(
-                {
-                    "crawl_result_id": crawl_result_id,
-                    "name": source["name"],
-                    "notes": source.get("notes", ""),
-                    "started_at": None,
-                    "source": "new",
-                    "source_data": source,
-                    "use_vision": source.get("process_images") == 1,
-                    "base_url": source.get("base_url", ""),
-                    "max_batches": source.get("max_batches"),
-                }
-            )
+        queued = len(json_api_sources) + len(browser_sources) + len(incomplete_crawled)
+        print(
+            f"  Queued {queued} items ({len(json_api_sources)} JSON API, "
+            f"{len(browser_sources)} browser, "
+            f"{len(incomplete_crawled)} extract-only)\n"
+        )
 
+        crawl_results = []
+        extracted_results = []
         job_tracker = TokenTracker()
 
-        if extraction_queue:
-            print(
-                f"\n  Extracting events from {len(extraction_queue)} source(s) with {num_workers} workers..."
-            )
+        async def stream_worker():
+            """Streaming worker: crawl then immediately extract one source at a time."""
+            results = []
+            tracker = TokenTracker()
+            browser = None
+            browser_key = None
 
-            # Worker pool pattern: maintain N concurrent extractors at all times
-            extract_q = asyncio.Queue()
-            for item in extraction_queue:
-                await extract_q.put(item)
-
-            async def extract_worker():
-                """Worker that continuously pulls from queue until empty."""
-                results = []
-                worker_tracker = TokenTracker()
+            try:
                 while True:
                     try:
-                        item = extract_q.get_nowait()
+                        item = queue.get_nowait()
                     except asyncio.QueueEmpty:
                         break
 
-                    # Each worker gets its own connection to see latest committed data
-                    conn = db.create_connection()
-                    if not conn:
-                        extract_q.task_done()
-                        continue
-                    cur = conn.cursor()
                     try:
-                        success, tracker = await extractor.extract_events(
-                            cur,
-                            conn,
-                            item["crawl_result_id"],
-                            item["name"],
-                            item["notes"],
-                            use_vision=item.get("use_vision", False),
-                            base_url=item.get("base_url", ""),
-                            max_batches=item.get("max_batches"),
-                        )
-                        worker_tracker.merge(tracker)
-                        if success:
-                            if item["source"] == "incomplete":
-                                results.append(
-                                    (
-                                        item["crawl_result_id"],
-                                        {
-                                            "name": item["name"],
-                                            "notes": item["notes"],
-                                            "started_at": item["started_at"],
-                                        },
+                        type_ = item["type"]
+
+                        if type_ == "json_api":
+                            source = item["source"]
+                            conn = db.create_connection()
+                            if not conn:
+                                continue
+                            cur = conn.cursor()
+                            try:
+                                result_id, _raw_data = await crawler.crawl_json_api(
+                                    source, cur, conn, crawl_job_id, throttle=throttle
+                                )
+                                if result_id:
+                                    results.append((result_id, source))
+                            except Exception as e:
+                                print(f"    - Error crawling {source['name']}: {e}")
+                            finally:
+                                cur.close()
+                                conn.close()
+
+                        elif type_ == "browser":
+                            source = item["source"]
+                            key = get_browser_key(source)
+
+                            # Recreate browser if config changed
+                            if browser is None or key != browser_key:
+                                if browser is not None:
+                                    await browser.__aexit__(None, None, None)
+                                config = crawler.get_browser_config(
+                                    text_mode=key[0],
+                                    light_mode=key[1],
+                                    use_stealth=key[2],
+                                )
+                                browser = AsyncWebCrawler(config=config)
+                                await browser.__aenter__()
+                                browser_key = key
+
+                            # Crawl
+                            conn = db.create_connection()
+                            if not conn:
+                                continue
+                            cur = conn.cursor()
+                            try:
+                                result_id = await crawler.crawl_source(
+                                    browser, source, cur, conn, crawl_job_id,
+                                    throttle=throttle,
+                                )
+                            except Exception as e:
+                                print(f"    - Error crawling {source['name']}: {e}")
+                                result_id = None
+                            finally:
+                                cur.close()
+                                conn.close()
+
+                            if result_id:
+                                crawl_results.append((result_id, source))
+
+                                # Extract immediately — overlap crawl of other sources
+                                conn = db.create_connection()
+                                if conn:
+                                    cur = conn.cursor()
+                                    try:
+                                        success, t = await extractor.extract_events(
+                                            cur,
+                                            conn,
+                                            result_id,
+                                            source["name"],
+                                            source.get("notes", ""),
+                                            use_vision=source.get("process_images") == 1,
+                                            base_url=source.get("base_url", ""),
+                                            max_batches=source.get("max_batches"),
+                                        )
+                                        conn.commit()
+                                        tracker.merge(t)
+                                        if success:
+                                            results.append((result_id, source))
+                                    except Exception as e:
+                                        print(
+                                            f"    - Error extracting {source['name']}: {e}"
+                                        )
+                                    finally:
+                                        cur.close()
+                                        conn.close()
+
+                        elif type_ == "extract_only":
+                            conn = db.create_connection()
+                            if not conn:
+                                continue
+                            cur = conn.cursor()
+                            try:
+                                success, t = await extractor.extract_events(
+                                    cur,
+                                    conn,
+                                    item["crawl_result_id"],
+                                    item["name"],
+                                    item.get("notes", ""),
+                                )
+                                conn.commit()
+                                tracker.merge(t)
+                                if success:
+                                    results.append(
+                                        (
+                                            item["crawl_result_id"],
+                                            {
+                                                "name": item["name"],
+                                                "notes": item.get("notes", ""),
+                                                "started_at": item.get("started_at"),
+                                            },
+                                        )
                                     )
-                                )
-                            else:
-                                results.append(
-                                    (item["crawl_result_id"], item["source_data"])
-                                )
-                    except Exception as e:
-                        print(f"    - Error extracting {item['name']}: {e}")
+                            except Exception as e:
+                                print(f"    - Error extracting {item['name']}: {e}")
+                            finally:
+                                cur.close()
+                                conn.close()
                     finally:
-                        cur.close()
-                        conn.close()
-                        extract_q.task_done()
-                return results, worker_tracker
+                        queue.task_done()
+            finally:
+                if browser is not None:
+                    await browser.__aexit__(None, None, None)
 
-            # Start N workers and wait for all to complete
-            worker_results = await asyncio.gather(
-                *[extract_worker() for _ in range(num_workers)]
-            )
+            return results, tracker
 
-            # Flatten results from all workers and merge trackers
-            for results, worker_tracker in worker_results:
-                extracted_results.extend(results)
-                job_tracker.merge(worker_tracker)
+        # Launch workers and wait for all to complete
+        worker_results = await asyncio.gather(
+            *[stream_worker() for _ in range(num_workers)]
+        )
 
-        print(f"\nExtracted events from {len(extracted_results)} source(s)\n")
+        for wr_results, wr_tracker in worker_results:
+            extracted_results.extend(wr_results)
+            job_tracker.merge(wr_tracker)
+
+        print(
+            f"\nProcessed {len(extracted_results)} source(s) "
+            f"({len(crawl_results)} browser crawled)\n"
+        )
 
         # Save token usage summary, mark crawl job complete, publish to backend
         if job_tracker.api_calls > 0:
