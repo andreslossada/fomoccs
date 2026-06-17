@@ -1,6 +1,6 @@
 # Scraper Pipeline
 
-Crawl event sources, extract structured event data, hand off to backend via Celery.
+Crawl event sources, extract structured event data via a multi-provider LLM chain (OpenCode Go → Gemini → OpenRouter → Groq → xAI), hand off to backend via Celery.
 
 Post-extract processing (dedup, merge, location resolution, geocoding) lives in the backend. This pipeline only crawls + extracts, then publishes a `PROCESS_CRAWL_JOB` task.
 
@@ -9,7 +9,7 @@ Post-extract processing (dedup, merge, location resolution, geocoding) lives in 
 `main.py` orchestrates:
 
 1. **Crawl** — query `sources` table for sites due for crawling, store content in `crawl_results` / `crawl_contents`.
-2. **Extract** — call OpenRouter (Gemini) to extract structured events from crawled content.
+2. **Extract** — call the multi-provider LLM chain (primary: OpenCode Go DeepSeek V4 Flash, subscription, no rate limits) to extract structured events from crawled content.
 3. **Handoff** — mark `crawl_jobs` complete and publish a Celery task with `crawl_job_id` for the backend worker.
 
 ## Module Structure
@@ -19,7 +19,7 @@ pipeline/
 ├── main.py              # Orchestrator
 ├── db.py                # Scraper-only DB helpers (psycopg2)
 ├── crawler.py           # Crawl4AI + JSON API crawler
-├── extractor.py         # OpenRouter/Gemini event extraction
+├── extractor.py         # Multi-provider LLM extraction (OpenCode Go → Gemini → ...)
 ├── celery_publisher.py  # Thin Celery publisher (Redis broker)
 ├── task_names.py        # Shared task-name constants (mirrors backend)
 └── tests/
@@ -58,9 +58,17 @@ Deps managed with `uv` — see `pyproject.toml`.
 
 ```env
 FOMO_ENV=local                         # or 'production'
-OPENROUTER_CRAWLER_API_KEY=...
-OPENROUTER_MODEL=google/gemini-2.5-flash
+
+# LLM Provider Chain (priority order, see extractor.py)
+OPENCODE_GO_API_KEY=...                # primary — subscription, no rate limits
+GEMINI_API_KEY=...                     # fallback: Gemini 2.5 Flash / Flash-Lite
+OPENROUTER_CRAWLER_API_KEY=...         # optional: OpenRouter
+GROQ_API_KEY=...                       # optional: Groq (Llama 3.3 70B)
+XAI_API_KEY=...                        # optional: xAI Grok
+
 EXTRACTION_TIMEOUT=120
+GEMINI_RATE_LIMIT_DELAY=0.6            # primary provider has no RPM cap
+PIPELINE_CONCURRENCY=2                 # concurrent crawl + extract workers
 REDIS_URL=redis://localhost:6379/0
 ```
 
@@ -94,7 +102,7 @@ A per-source `min_request_interval_seconds` override (set in the `sources`
 row) wins over the tier default. After a 429/403, `HostnameThrottle` puts
 the hostname in a 30s cooldown (or longer if the server returns
 `Retry-After`). The throttle is shared across all `PIPELINE_CONCURRENCY`
-(default 5) workers in a single run.
+(default 2) workers in a single run.
 
 ## Structured Logs
 

@@ -24,10 +24,24 @@ Create a `.env` file in the project root:
 ```env
 FOMO_ENV=local          # "local" or "production"
 
-# Gemini AI
+# LLM Provider Chain (in priority order)
+# OpenCode Go DeepSeek V4 Flash — primary, subscription-based, NO rate limits
+OPENCODE_GO_API_KEY="your-api-key"
+# Gemini fallbacks (free tier: 5/20/1500 RPM/RPD depending on model)
 GEMINI_API_KEY="your-api-key"
-GEMINI_MODEL="gemini-2.5-flash"   # default
-GEMINI_TIMEOUT=120                 # seconds, default
+GEMINI_MODEL="gemini-2.5-flash"            # default
+GEMINI_MODEL_LITE="gemini-2.5-flash-lite"  # high-RPD fallback
+
+# Optional additional providers (fall through if all above exhausted):
+OPENROUTER_CRAWLER_API_KEY="..."     # OpenRouter (Gemini/other models)
+OPENROUTER_MODEL="google/gemini-2.5-flash"
+GROQ_API_KEY="..."                   # Groq (Llama 3.3 70B)
+XAI_API_KEY="..."                    # xAI Grok
+
+# Extraction settings
+GEMINI_TIMEOUT=120                   # seconds per LLM call
+GEMINI_RATE_LIMIT_DELAY=0.6          # min seconds between calls (OpenCode Go has no RPM cap)
+PIPELINE_CONCURRENCY=2               # concurrent crawl+extract workers
 
 # Production DB (only needed if FOMO_ENV=production)
 PROD_DB_HOST="..."
@@ -35,6 +49,26 @@ PROD_DB_NAME="..."
 PROD_DB_USER="..."
 PROD_DB_PASS="..."
 ```
+
+## LLM Provider Chain
+
+The pipeline uses a multi-provider fallback chain for event extraction (defined in `pipeline/extractor.py`). Providers are tried in priority order:
+
+1. **OpenCode Go DeepSeek V4 Flash** — primary, subscription with generous/no rate limits. Set `OPENCODE_GO_API_KEY`.
+2. **Gemini 2.5 Flash** — best quality fallback, 5 RPM / 20 RPD on free tier.
+3. **Gemini 2.5 Flash-Lite** — same API key, 1,500 RPD (75x more quota).
+4. **OpenRouter** — separate provider, configurable model.
+5. **Groq** — very fast inference, 14,400 RPD free tier (Llama 3.3 70B).
+6. **xAI Grok** — separate provider.
+
+When a provider hits 429 (rate limit) or 413 (TPM exceeded), it goes into cooldown and the next provider is tried. `RateLimitError` (429) and `BadRequestError` with status 413 both trigger fallback. All providers exhausted → `AllProvidersExhausted` exception → job retries later.
+
+**Rate limit delays** are configured per provider:
+- OpenCode Go: `GEMINI_RATE_LIMIT_DELAY=0.6` (primary, no RPM cap)
+- Gemini Flash: hardcoded 13s (5 RPM)
+- Gemini Flash-Lite: hardcoded 3.5s (20 RPM)
+
+The extraction step tracks token usage per provider in `crawl_summaries`.
 
 ## Usage
 

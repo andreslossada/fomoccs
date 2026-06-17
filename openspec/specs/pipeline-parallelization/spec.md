@@ -1,13 +1,18 @@
 # pipeline-parallelization Specification
 
 ## Purpose
-TBD - created by archiving change maximize-event-ingestion. Update Purpose after archive.
+The pipeline processes multiple sources concurrently with a bounded worker pool. Each worker handles a complete crawl → extract cycle for one source at a time (streaming), so extraction of an early-fast source overlaps with crawling of a later-slow source. A shared `HostnameThrottle` coordinates per-domain request pacing across all workers.
 ## Requirements
-### Requirement: Pipeline processes multiple sources concurrently
+### Requirement: Pipeline processes multiple sources concurrently with streaming
 
-When the pipeline is invoked with `python main.py --ids=1,2,3,...`, the system SHALL run each source's crawl + extract + process steps concurrently rather than sequentially, subject to a configurable concurrency bound.
+When the pipeline is invoked with `python main.py --ids=1,2,3,...`, the system SHALL process sources via a unified worker pool where each worker performs crawl→extract for one source, then picks up the next from the queue. Crawl and extract of different sources SHALL overlap in time.
 
-The default concurrency bound SHALL be 5. The bound MUST be overridable via the `PIPELINE_CONCURRENCY` environment variable.
+The default concurrency bound SHALL be 2. The bound MUST be overridable via the `PIPELINE_CONCURRENCY` environment variable.
+
+#### Scenario: Crawl and extract of different sources overlap
+- **WHEN** the pipeline processes 5 sources with `PIPELINE_CONCURRENCY=2`
+- **THEN** worker A may be extracting source 1 while worker B is crawling source 2
+- **THEN** total wall time is less than (sum of crawls) + (sum of extracts)
 
 #### Scenario: Three sources finish in roughly the time of the slowest
 - **WHEN** the pipeline is invoked with `--ids=10,11,12` and each source takes 60s
