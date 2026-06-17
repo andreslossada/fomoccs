@@ -25,6 +25,7 @@ dependencies = [
     "itsdangerous>=2.2.0",
     "alembic>=1.18.4",
     "celery[redis]>=5.4",
+    "plotext>=5.3.2",
 ]
 
 [project.scripts]
