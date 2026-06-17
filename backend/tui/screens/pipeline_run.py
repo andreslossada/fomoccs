@@ -7,18 +7,25 @@ import re
 import time
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, Static
+
+from tui.screens.help import HelpModal
 
 
 class PipelineRunScreen(Screen[None]):
     """Run the event discovery pipeline and show real-time output."""
 
     BINDINGS = [
-        ("escape", "app.pop_screen", "Back"),
-        ("r", "rerun", "Re-run"),
+        Binding("escape", "app.pop_screen", "Back"),
+        Binding("r", "rerun", "Re-run"),
+        Binding("?", "show_help", "Help"),
     ]
+
+    def action_show_help(self) -> None:
+        self.app.push_screen(HelpModal("Pipeline Run", self.BINDINGS))
 
     _source_name: str = ""
 
@@ -38,6 +45,10 @@ class PipelineRunScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         label = self._source_name or "Pipeline"
+        yield Label(
+            f"[bold reverse #00bcd4]  Crawling: {label}  [/]",
+            id="screen-title",
+        )
         yield Label(f"[bold]Crawling: {label}[/bold]", id="breadcrumb")
         yield Container(
             Static("", id="pipeline-status"),

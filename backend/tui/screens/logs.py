@@ -4,22 +4,29 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from textual.app import ComposeResult
-from textual.containers import Container
+from textual.binding import Binding
+from textual.containers import Container, Horizontal
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Label, Static
+from textual.widgets import Button, Footer, Header, Label, Static
 
 from tui.db import get_session, recent_crawl_errors, recent_crawl_results
+from tui.screens.help import HelpModal
+from tui.widgets.loading import LoadingIndicator
 
 
 class LogsScreen(Screen[object]):
     """View recent crawl results and errors."""
 
     BINDINGS = [
-        ("escape", "app.pop_screen", "Back"),
-        ("e", "show_errors", "Errors"),
-        ("a", "show_all", "All"),
-        ("r", "refresh", "Refresh"),
+        Binding("escape", "app.pop_screen", "Back"),
+        Binding("?", "show_help", "Help"),
+        Binding("e", "show_errors", "Errors", show=False),
+        Binding("a", "show_all", "All", show=False),
+        Binding("r", "refresh", "Refresh"),
     ]
+
+    def action_show_help(self) -> None:
+        self.app.push_screen(HelpModal("Logs", self.BINDINGS))
 
     _mode: str = "all"
 
@@ -30,13 +37,16 @@ class LogsScreen(Screen[object]):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
+        yield Label("[bold reverse #00bcd4]  Logs  [/]", id="screen-title")
+        yield from self._nav_tabs()
         yield Label("[bold]Logs[/bold]", id="breadcrumb")
         yield Container(
             Static(
                 "[bold]Recent Crawl Activity[/bold] [dim](r:refresh e:errors a:all)[/dim]",
                 id="logs-title",
             ),
-            Static("[dim]Loading...[/dim]", id="logs-content"),
+            LoadingIndicator("Loading logs...", id="logs-spinner"),
+            Static("", id="logs-content"),
             id="logs-container",
         )
         yield Footer()
@@ -49,7 +59,7 @@ class LogsScreen(Screen[object]):
         self.query_one("#logs-title", Static).update(
             f"{label} [dim](refreshing...)[/dim]"
         )
-        self.query_one("#logs-content", Static).update("[dim]Loading...[/dim]")
+        self.query_one("#logs-spinner", LoadingIndicator).display = True
 
     async def _load_logs(self) -> None:
         self._show_loading()
@@ -100,6 +110,7 @@ class LogsScreen(Screen[object]):
         self.query_one("#logs-title", Static).update(
             f"{label} [dim](r:refresh e:errors a:all)[/dim]"
         )
+        self.query_one("#logs-spinner", LoadingIndicator).display = False
 
     def action_show_errors(self) -> None:
         self._mode = "errors"
@@ -111,3 +122,24 @@ class LogsScreen(Screen[object]):
 
     def action_refresh(self) -> None:
         self.run_worker(self._load_logs())
+
+    def _nav_tabs(self) -> ComposeResult:
+        screens = [
+            ("d", "Dashboard"), ("s", "Sources"), ("e", "Events"),
+            ("l", "Locations"), ("t", "Rules"), ("o", "Ops"), ("g", "Logs"),
+        ]
+        with Horizontal(id="nav-tabs"):
+            for key, label in screens:
+                yield Button(label, id=f"nav-{key}")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        bid = event.button.id or ""
+        if not bid.startswith("nav-"):
+            return
+        screen_map = {
+            "d": "dashboard", "s": "sources", "e": "events",
+            "l": "locations", "t": "tag_rules", "o": "operations", "g": "logs",
+        }
+        key = bid[4:]
+        if key in screen_map:
+            self.app.switch_screen(screen_map[key])

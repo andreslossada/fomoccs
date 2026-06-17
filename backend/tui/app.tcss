@@ -1,11 +1,16 @@
-/* FomoCCS Admin TUI — global stylesheet (Textual CSS) */
+/* ═══════════════════════════════════════════════════════════════════════════
+   FomoCCS Admin TUI — global stylesheet (Textual CSS)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
 
 Screen {
     background: $surface;
+    color: $text;
 }
 
 Header {
-    background: $panel;
+    background: $panel-darken-1;
     color: $text;
     text-style: bold;
     dock: top;
@@ -13,23 +18,177 @@ Header {
 }
 
 Footer {
-    background: $panel;
+    background: $panel-darken-1;
     dock: bottom;
     height: 1;
+    color: $text-muted;
 }
 
-/* Breadcrumb — shows current screen name */
+/* ── Breadcrumb ─────────────────────────────────────────────────────────── */
+
+#screen-title {
+    dock: top;
+    height: 1;
+    background: $primary;
+    color: $text;
+    text-style: bold;
+    content-align: center middle;
+    padding: 0 2;
+    width: 100%;
+}
+
 #breadcrumb {
     dock: top;
     height: 1;
-    background: $primary-lighten-1;
-    color: $text;
+    background: $primary 10%;
+    color: $primary;
     text-style: bold;
     padding: 0 2;
     border-bottom: solid $primary;
 }
 
-/* Source wizard form */
+/* ── Dashboard grid ─────────────────────────────────────────────────────── */
+
+#dashboard-grid {
+    layout: grid;
+    grid-size: 2;
+    grid-gutter: 1 2;
+    grid-rows: auto;
+    padding: 1 2;
+}
+
+
+#dashboard-grid Static {
+    height: auto;
+    min-height: 4;
+    content-align: left top;
+    padding: 0;
+    margin: 0;
+}
+
+#last-crawls {
+    height: auto;
+    min-height: 4;
+    padding: 0;
+    margin: 0 2 1 2;
+}
+
+#dash-spinner {
+    height: 1;
+    padding: 0 2;
+    margin-bottom: 1;
+}
+
+/* ── Filter bar ─────────────────────────────────────────────────────────── */
+
+#filters {
+    height: auto;
+    min-height: 3;
+    padding: 1 2;
+    background: $panel;
+    border-bottom: solid $primary 25%;
+}
+
+#filters Input {
+    width: 30;
+    margin-right: 2;
+    height: auto;
+    min-height: 1;
+    border: solid $accent 60%;
+}
+
+#filters Input:focus {
+    border: solid $accent;
+}
+
+#filters Label {
+    padding: 0 2;
+    color: $text-muted;
+    content-align: center middle;
+    height: auto;
+    min-height: 1;
+}
+
+#counter {
+    color: $text-muted;
+    text-align: right;
+    width: auto;
+}
+
+/* ── DataTables ─────────────────────────────────────────────────────────── */
+
+DataTable {
+    height: 1fr;
+    border: solid $panel;
+    background: $surface;
+}
+
+DataTable > .datatable--cursor {
+    background: $primary 25%;
+    color: $text;
+}
+
+DataTable > .datatable--header {
+    background: $primary 18%;
+    color: $primary-lighten-1;
+    text-style: bold;
+    height: 1;
+}
+
+/* ── Loading / Empty states ─────────────────────────────────────────────── */
+
+LoadingIndicator {
+    height: auto;
+    padding: 1 2;
+    color: $text-muted;
+    content-align: center middle;
+}
+
+#empty-state {
+    height: auto;
+    padding: 2;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+/* ── Status badges ──────────────────────────────────────────────────────── */
+
+StatusBadge {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    content-align: center middle;
+}
+
+/* ── Detail containers ──────────────────────────────────────────────────── */
+
+#source-detail,
+#event-detail,
+#location-detail {
+    padding: 1 2;
+    overflow-y: auto;
+    height: 1fr;
+}
+
+#source-detail Static,
+#event-detail Static,
+#location-detail Static {
+    padding: 1 0;
+}
+
+#source-name,
+#event-name,
+#loc-name {
+    padding: 1 0;
+    text-style: bold;
+}
+
+#detail-spinner {
+    padding: 1 2;
+}
+
+/* ── Source wizard ──────────────────────────────────────────────────────── */
+
 #wizard-form {
     padding: 1 2;
     overflow-y: auto;
@@ -62,6 +221,18 @@ Footer {
     margin-bottom: 0;
 }
 
+#ig-label,
+#ig-max-label {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#sw-ig-username,
+#sw-ig-max-posts {
+    width: 30;
+    margin-bottom: 1;
+}
+
 #wizard-actions {
     margin-top: 2;
     height: auto;
@@ -78,7 +249,8 @@ Footer {
     height: 1;
 }
 
-/* Pipeline run screen */
+/* ── Pipeline run screen ────────────────────────────────────────────────── */
+
 #pipeline-container {
     padding: 1;
 }
@@ -101,101 +273,14 @@ Footer {
     padding: 1;
 }
 
-#last-crawls {
-    height: auto;
-    min-height: 3;
-    padding: 1 2;
-    border: solid $primary;
-    background: $surface;
-    margin: 1;
-}
+/* ── Operations ─────────────────────────────────────────────────────────── */
 
-/* Dashboard grid layout */
-#dashboard-grid {
-    layout: grid;
-    grid-size: 2;
-    grid-gutter: 1;
-    grid-rows: auto;
-    padding: 1;
-}
-
-#dashboard-grid Static {
-    height: auto;
-    padding: 1 2;
-    border: solid $primary;
-    background: $surface;
-    content-align: left top;
-}
-
-/* Horizontal filter bar */
-#filters {
-    height: auto;
-    min-height: 3;
-    padding: 1;
-    background: $panel;
-}
-
-#filters Input {
-    width: 30;
-    margin-right: 2;
-    height: auto;
-    min-height: 1;
-    border: solid $accent;
-}
-
-#filters Label {
-    padding: 0 2;
-    color: $text-muted;
-    content-align: center middle;
-    height: auto;
-    min-height: 1;
-}
-
-#counter {
-    color: $text-muted;
-    text-align: right;
-    width: auto;
-}
-
-/* DataTables */
-DataTable {
-    height: 1fr;
-    border: solid $panel;
-}
-
-DataTable > .datatable--cursor {
-    background: $accent 20%;
-    color: $text;
-}
-
-DataTable > .datatable--header {
-    background: $panel;
-    color: $text;
-    text-style: bold;
-}
-
-/* Detail containers */
-#source-detail,
-#event-detail,
-#location-detail,
-#operations-container,
-#logs-container {
-    padding: 1;
-}
-
-#source-detail Static,
-#event-detail Static,
-#location-detail Static {
-    padding: 1 0;
-}
-
-/* Operations screen */
 #operations-container {
     padding: 2;
 }
 
 .ops-section {
-    border-bottom: solid $accent;
+    border-bottom: solid $accent 50%;
     color: $accent;
     text-style: bold;
     padding: 1 0;
@@ -214,6 +299,20 @@ DataTable > .datatable--header {
     min-width: 20;
 }
 
+Button {
+    border: solid $primary 50%;
+}
+
+Button:hover {
+    border: solid $accent;
+    background: $accent 15%;
+}
+
+Button:focus {
+    border: solid $accent;
+    text-style: bold;
+}
+
 #ops-status {
     height: 1;
     color: $text-muted;
@@ -228,10 +327,12 @@ DataTable > .datatable--header {
     min-height: 5;
 }
 
-/* Logs screen */
+/* ── Logs ───────────────────────────────────────────────────────────────── */
+
 #logs-content {
     height: 1fr;
     overflow-y: auto;
+    padding: 1;
 }
 
 #logs-title {
@@ -239,28 +340,67 @@ DataTable > .datatable--header {
     text-style: bold;
 }
 
-/* Detail sections with spacing */
-#event-desc,
-#event-occurrences,
-#event-tags,
-#event-urls,
-#event-sources,
-#loc-desc,
-#loc-meta,
-#loc-alt-names,
-#loc-tags,
-#loc-events,
-#source-meta,
-#source-urls,
-#source-config {
-    padding: 0 0 1 0;
+#logs-spinner {
+    padding: 1;
 }
 
-/* Dialog overrides */
+/* ── Dialogs ────────────────────────────────────────────────────────────── */
+
 ConfirmDialog > Static,
 InputDialog > Static {
     padding: 2;
     border: thick $accent;
     background: $surface;
+    color: $text;
+}
+
+ConfirmDialog {
+    align: center middle;
+}
+
+InputDialog {
+    align: center middle;
+}
+
+/* Help modal */
+#help-container {
+    padding: 1 2;
+    height: auto;
+    min-height: 10;
+    border: thick $accent;
+    background: $surface;
+    margin: 2 4;
+}
+
+#help-container Static {
+    padding: 1 0;
+    content-align: left top;
+}
+
+/* Navigation tabs */
+#nav-tabs {
+    dock: top;
+    height: 1;
+    background: $panel-darken-1;
+    border-bottom: solid $primary;
+}
+
+#nav-tabs Button {
+    min-width: 10;
+    max-width: 16;
+    margin: 0;
+    border: none;
+    background: transparent;
+    color: $text-muted;
+    content-align: center middle;
+}
+
+#nav-tabs Button:hover {
+    background: $primary 20%;
+    color: $text;
+}
+
+#nav-tabs Button.-active {
+    background: $primary;
     color: $text;
 }

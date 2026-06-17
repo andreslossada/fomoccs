@@ -10,6 +10,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Label, RichLog, Static
@@ -21,6 +22,7 @@ from tui.db import (
     get_jobs_with_extracted_results,
     get_session,
 )
+from tui.screens.help import HelpModal
 from tui.widgets.confirm_dialog import ConfirmDialog
 from tui.widgets.input_dialog import InputDialog
 
@@ -30,13 +32,30 @@ _project_root = Path(__file__).resolve().parents[3]
 class OperationsScreen(Screen[object]):
     """Trigger admin operations like crawl jobs, reprocessing, and backfills."""
 
-    BINDINGS = [("escape", "app.pop_screen", "Back")]
+    BINDINGS = [
+        Binding("escape", "app.pop_screen", "Back"),
+        Binding("?", "show_help", "Help"),
+    ]
+
+    def action_show_help(self) -> None:
+        self.app.push_screen(HelpModal("Operations", self.BINDINGS))
+
+    def _nav_tabs(self) -> ComposeResult:
+        screens = [
+            ("d", "Dashboard"), ("s", "Sources"), ("e", "Events"),
+            ("l", "Locations"), ("t", "Rules"), ("o", "Ops"), ("g", "Logs"),
+        ]
+        with Horizontal(id="nav-tabs"):
+            for key, label in screens:
+                yield Button(label, id=f"nav-{key}")
 
     def on_mount(self) -> None:
         self.query_one("#btn-crawl-all", Button).focus()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
+        yield Label("[bold reverse #00bcd4]  Operations  [/]", id="screen-title")
+        yield from self._nav_tabs()
         yield Label("[bold]Operations[/bold]", id="breadcrumb")
         yield Container(
             Static("[bold $accent]── Crawl Operations ──[/]", classes="ops-section"),
@@ -65,6 +84,18 @@ class OperationsScreen(Screen[object]):
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        bid = event.button.id or ""
+        if bid.startswith("nav-"):
+            screen_map = {
+                "d": "dashboard", "s": "sources", "e": "events",
+                "l": "locations", "t": "tag_rules",
+                "o": "operations", "g": "logs",
+            }
+            key = bid[4:]
+            if key in screen_map:
+                self.app.switch_screen(screen_map[key])
+            return
+
         action = event.button.id
         if action == "btn-crawl-all":
             self.run_worker(self._run_pipeline())
@@ -221,6 +252,12 @@ class OperationsScreen(Screen[object]):
         out = self._log()
         status = self._status()
 
+        confirmed = await self.app.push_screen_wait(
+            ConfirmDialog("Process latest crawl job?")
+        )
+        if not confirmed:
+            return
+
         session: AsyncSession = await get_session()
         try:
             result = await session.execute(
@@ -230,12 +267,6 @@ class OperationsScreen(Screen[object]):
             if job_id is None:
                 out.clear()
                 out.write("[yellow]No crawl jobs found[/yellow]")
-                return
-
-            confirmed = await self.app.push_screen_wait(
-                ConfirmDialog(f"Process crawl job #{job_id}?")
-            )
-            if not confirmed:
                 return
 
             out.clear()
@@ -256,6 +287,14 @@ class OperationsScreen(Screen[object]):
         out = self._log()
         status = self._status()
 
+        confirmed = await self.app.push_screen_wait(
+            ConfirmDialog(
+                "Process all stuck crawl results? (4 concurrent)"
+            )
+        )
+        if not confirmed:
+            return
+
         session: AsyncSession = await get_session()
         try:
             count = await count_extracted_results(session)
@@ -267,16 +306,6 @@ class OperationsScreen(Screen[object]):
             job_ids = await get_jobs_with_extracted_results(session)
         finally:
             await session.close()
-
-        confirmed = await self.app.push_screen_wait(
-            ConfirmDialog(
-                f"Process [bold]{count}[/bold] extracted results across "
-                f"[bold]{len(job_ids)}[/bold] crawl jobs? "
-                f"(4 concurrent)"
-            )
-        )
-        if not confirmed:
-            return
 
         total = len(job_ids)
         out.clear()
@@ -300,7 +329,7 @@ class OperationsScreen(Screen[object]):
                 + "\n".join(lines[-20:])
             )
 
-        sem = asyncio.Semaphore(1)
+        sem = asyncio.Semaphore(4)
 
         async def process_one_under_sem(job_id: int) -> None:
             nonlocal ok_count, fail_count, done
@@ -320,7 +349,7 @@ class OperationsScreen(Screen[object]):
                 await update_output()
 
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(120), limits=httpx.Limits(max_connections=1)
+            timeout=httpx.Timeout(120), limits=httpx.Limits(max_connections=4)
         ) as httpx_client:
             await asyncio.gather(
                 *(process_one_under_sem(jid) for jid in job_ids)

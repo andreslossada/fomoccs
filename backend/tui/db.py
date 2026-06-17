@@ -122,6 +122,55 @@ async def llm_usage_today(session: AsyncSession) -> dict[str, Any]:
     }
 
 
+async def hourly_llm_cost_last_24h(
+    session: AsyncSession,
+) -> list[float]:
+    """Hourly LLM cost for the last 24 hours (sparkline data)."""
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=24)
+    result = await session.execute(
+        select(
+            func.date_trunc("hour", CrawlSummary.created_at).label("hour"),
+            func.coalesce(func.sum(CrawlSummary.estimated_cost), 0).label("cost"),
+        )
+        .where(CrawlSummary.created_at >= cutoff)
+        .group_by("hour")
+        .order_by("hour")
+    )
+    hours: dict[int, float] = {h: 0.0 for h in range(24)}
+    now_hour = datetime.now(UTC).hour
+    for row in result.all():
+        h = row[0].hour
+        bucket = (h - now_hour - 1) % 24
+        hours[bucket] = float(row[1])
+    return [hours[h] for h in range(24)]
+
+
+async def hourly_events_last_24h(
+    session: AsyncSession,
+) -> list[int]:
+    """Event count per hour for the last 24 hours (sparkline data)."""
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=24)
+    result = await session.execute(
+        select(
+            func.date_trunc("hour", Event.created_at).label("hour"),
+            func.count(Event.id).label("cnt"),
+        )
+        .where(
+            Event.created_at >= cutoff,
+            Event.deleted_at.is_(None),
+        )
+        .group_by("hour")
+        .order_by("hour")
+    )
+    hours: dict[int, int] = {h: 0 for h in range(24)}
+    now_hour = datetime.now(UTC).hour
+    for row in result.all():
+        h = row[0].hour
+        bucket = (h - now_hour - 1) % 24
+        hours[bucket] = int(row[1])
+    return [hours[h] for h in range(24)]
+
+
 async def recent_events_for_dashboard(
     session: AsyncSession, limit: int = 10
 ) -> list[dict[str, Any]]:

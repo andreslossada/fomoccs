@@ -7,148 +7,124 @@ from typing import Any
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from textual.app import ComposeResult
-from textual.containers import Horizontal
-from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Header, Input, Label
+from textual.binding import Binding
+from textual.widgets import DataTable, Label
 
-from tui.db import count_events, get_session, list_events
+from api.models.event import Event
+from tui.db import count_events, list_events
+from tui.screens.base import BaseListScreen
 from tui.screens.events_detail import EventDetailScreen
+from tui.widgets.status_badge import format_status
+from tui.utils import relative_time
 
 
-class EventsScreen(Screen[object]):
+class EventsScreen(BaseListScreen):
     """Browse and manage events."""
 
-    _data: list[dict[str, Any]] = []
-    _offset: int = 0
-    _total: int = 0
-    _search: str = ""
+    _table_id = "events-table"
+    _columns = ["ID", "Name", "Status", "Location", "Occ.", "Created"]
+    _title = "Events"
+
     _status_filter: str = ""
-    _search_timer: object | None = None
-    _loading: bool = False
+    _empty_message = "No events match this filter. Press c to cycle status."
 
     BINDINGS = [
-        ("escape", "app.pop_screen", "Back"),
-        ("/", "focus_search", "Search"),
-        ("enter", "view_event", "Detail"),
-        ("a", "toggle_archive", "Archive"),
-        ("c", "cycle_status", "Status"),
-        ("r", "refresh", "Refresh"),
-        ("n", "load_more", "More"),
-        ("p", "load_less", "Prev"),
+        Binding("escape", "app.pop_screen", "Back"),
+        Binding("?", "show_help", "Help"),
+        Binding("/", "focus_search", "Search"),
+        Binding("enter", "view_event", "Detail"),
+        Binding("a", "toggle_archive", "Archive", show=False),
+        Binding("c", "cycle_status", "Status", show=False),
+        Binding("r", "refresh", "Refresh"),
+        Binding("n", "load_more", "More"),
+        Binding("p", "load_less", "Prev"),
     ]
 
-    def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
-        yield Label("[bold]Events[/bold]", id="breadcrumb")
-        with Horizontal(id="filters"):
-            yield Input(placeholder="Search events...", id="search-input")
-            yield Label("Status: all", id="status-label")
-            yield Label("", id="counter")
-        yield DataTable(id="events-table")
-        yield Footer()
+    # ── filters ──────────────────────────────────────────────────────
+    def _extra_filters(self) -> ComposeResult:
+        yield Label("Status: all", id="status-label")
 
-    def on_mount(self) -> None:
-        table = self.query_one("#events-table", DataTable)
-        table.cursor_type = "row"
-        table.add_columns("ID", "Name", "Status", "Location", "Occ.", "Created")
-        self.run_worker(self._load_data())
+    # ── data loading (BaseListScreen overrides) ────────────────────
+    async def _load_page(
+        self, session: AsyncSession, offset: int, limit: int
+    ) -> list[dict[str, Any]]:
+        events = await list_events(
+            session,
+            search=self._search,
+            status=self._status_filter,
+            offset=offset,
+            limit=limit,
+        )
+        return [dict(row) for row in events]
 
-    def _render_table(self) -> None:
-        table = self.query_one("#events-table", DataTable)
-        table.clear()
-        if self._loading:
-            table.add_row("", "[dim]Loading...[/dim]", "", "", "", "")
-            self.query_one("#counter", Label).update("[dim]Loading...[/dim]")
-            return
-        if not self._data:
-            table.add_row("", "[dim]No results[/dim]", "", "", "", "")
-            self.query_one("#counter", Label).update("0 / 0")
-            return
-        for ev in self._data:
-            status = str(ev.get("status", ""))
-            color = {
-                "active": "[green]",
-                "archived": "[dim]",
-                "draft": "[yellow]",
-                "cancelled": "[red]",
-            }.get(status, "")
-            end_tag = f"[/{color[1:]}" if color.startswith("[") else ""
-            table.add_row(
-                str(ev.get("id", "")),
-                str(ev.get("name", ""))[:60],
-                f"{color}{status}{end_tag}",
-                str(ev.get("location_name", ""))[:30],
-                str(ev.get("occurrences", "")),
-                str(ev.get("created_at", ""))[:16] if ev.get("created_at") else "",
-            )
-        self.query_one("#counter", Label).update(
-            f"{self._offset + len(self._data)} / {self._total}"
+    async def _count_total(self, session: AsyncSession) -> int:
+        return await count_events(
+            session, search=self._search, status=self._status_filter
         )
 
-    async def _load_data(self) -> None:
-        self._loading = True
-        self._render_table()
-        session: AsyncSession = await get_session()
-        try:
-            self._total = await count_events(
-                session, search=self._search, status=self._status_filter
-            )
-            events = await list_events(
-                session,
-                search=self._search,
-                status=self._status_filter,
-                offset=self._offset,
-                limit=50,
-            )
-            self._data = [dict(row) for row in events]
-        finally:
-            await session.close()
-        self._loading = False
-        self._render_table()
+    def _render_row(self, item: dict[str, Any]) -> list[str]:
+        status = str(item.get("status", ""))
+        return [
+            str(item.get("id", "")),
+            str(item.get("name", ""))[:60],
+            format_status(status),
+            str(item.get("location_name", ""))[:30],
+            str(item.get("occurrences", "")),
+            relative_time(item.get("created_at")),
+        ]
 
+    def _row_style(self, item: dict[str, Any]) -> str | None:
+        color_map = {
+            "active": "#66bb6a", "archived": "#888888",
+            "draft": "#ffd54f", "cancelled": "#ef5350",
+        }
+        color = color_map.get(str(item.get("status", "")), "")
+        return f"color: {color}" if color else None
+
+    # ── event actions ────────────────────────────────────────────────
     def action_view_event(self) -> None:
-        table = self.query_one("#events-table", DataTable)
-        row_key = table.cursor_coordinate.row if table.cursor_coordinate else None
+        table = self.query_one(f"#{self._table_id}", DataTable)
+        row_key = (
+            table.cursor_coordinate.row if table.cursor_coordinate else None
+        )
         if self._data and row_key is not None and row_key < len(self._data):
             event_id = self._data[row_key]["id"]
             if isinstance(event_id, int):
                 self.app.push_screen(EventDetailScreen(event_id))
 
     def action_toggle_archive(self) -> None:
-        table = self.query_one("#events-table", DataTable)
-        row_key = table.cursor_coordinate.row if table.cursor_coordinate else None
+        table = self.query_one(f"#{self._table_id}", DataTable)
+        row_key = (
+            table.cursor_coordinate.row if table.cursor_coordinate else None
+        )
         if self._data and row_key is not None and row_key < len(self._data):
             ev = self._data[row_key]
-            new_status = "active" if ev["status"] == "archived" else "archived"
-            self.run_worker(self._do_toggle_archive(int(ev["id"]), new_status))
+            new_status = (
+                "active" if ev["status"] == "archived" else "archived"
+            )
+            self.run_worker(
+                self._do_toggle_archive(int(ev["id"]), new_status)
+            )
 
-    async def _do_toggle_archive(self, event_id: int, new_status: str) -> None:
-        from api.models.event import Event
+    async def _do_toggle_archive(
+        self, event_id: int, new_status: str
+    ) -> None:
+        from tui.db import get_session
 
         session = await get_session()
         try:
             await session.execute(
-                update(Event).where(Event.id == event_id).values(status=new_status)
+                update(Event)
+                .where(Event.id == event_id)
+                .values(status=new_status)
             )
             await session.commit()
         finally:
             await session.close()
+        self.app.notify(
+            f"Event {new_status}", severity="information"
+        )
         await self._load_data()
-
-    def action_focus_search(self) -> None:
-        self.query_one("#search-input", Input).focus()
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "search-input":
-            self._search = event.value
-            self._offset = 0
-            if self._search_timer is not None:
-                self._search_timer.stop()
-            self._search_timer = self.set_timer(0.3, self._debounced_search)
-
-    def _debounced_search(self) -> None:
-        self._search_timer = None
-        self.run_worker(self._load_data())
 
     def action_cycle_status(self) -> None:
         statuses = ["", "active", "archived", "draft", "cancelled"]
@@ -164,17 +140,7 @@ class EventsScreen(Screen[object]):
         self._offset = 0
         self.run_worker(self._load_data())
 
-    def action_refresh(self) -> None:
-        self.run_worker(self._load_data())
-
-    PAGE_SIZE = 50
-
-    def action_load_more(self) -> None:
-        if self._offset + len(self._data) < self._total:
-            self._offset += len(self._data)
-            self.run_worker(self._load_data())
-
     def action_load_less(self) -> None:
         if self._offset > 0:
-            self._offset = max(0, self._offset - self.PAGE_SIZE)
+            self._offset = max(0, self._offset - self._page_size)
             self.run_worker(self._load_data())
