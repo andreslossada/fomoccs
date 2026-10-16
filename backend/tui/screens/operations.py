@@ -25,6 +25,7 @@ from tui.db import (
 from tui.screens.help import HelpModal
 from tui.widgets.confirm_dialog import ConfirmDialog
 from tui.widgets.input_dialog import InputDialog
+from tui.widgets.nav_tabs import compose_nav_tabs, handle_nav_press
 
 _project_root = Path(__file__).resolve().parents[3]
 
@@ -40,38 +41,29 @@ class OperationsScreen(Screen[object]):
     def action_show_help(self) -> None:
         self.app.push_screen(HelpModal("Operations", self.BINDINGS))
 
-    def _nav_tabs(self) -> ComposeResult:
-        screens = [
-            ("d", "Dashboard"), ("s", "Sources"), ("e", "Events"),
-            ("l", "Locations"), ("t", "Rules"), ("o", "Ops"), ("g", "Logs"),
-        ]
-        with Horizontal(id="nav-tabs"):
-            for key, label in screens:
-                yield Button(label, id=f"nav-{key}")
-
     def on_mount(self) -> None:
         self.query_one("#btn-crawl-all", Button).focus()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield Label("[bold reverse #00bcd4]  Operations  [/]", id="screen-title")
-        yield from self._nav_tabs()
-        yield Label("[bold]Operations[/bold]", id="breadcrumb")
+        yield from compose_nav_tabs()
+        yield Label("[bold]\u25b8 Operations[/bold]", id="breadcrumb")
         yield Container(
-            Static("[bold $accent]── Crawl Operations ──[/]", classes="ops-section"),
+            Static("[bold $accent]\u2500\u2500 Crawl Operations \u2500\u2500[/]", classes="ops-section"),
             Horizontal(
                 Button("Crawl: All due sources", id="btn-crawl-all"),
                 Button("Crawl: Tier 1 sources", id="btn-crawl-tier1"),
                 classes="ops-button-row",
             ),
-            Static("[bold $accent]── Process Operations ──[/]", classes="ops-section"),
+            Static("[bold $accent]\u2500\u2500 Process Operations \u2500\u2500[/]", classes="ops-section"),
             Horizontal(
                 Button("Reprocess latest crawl job", id="btn-reprocess"),
                 Button("Process all stuck crawl results", id="btn-process-stuck"),
                 Button("Process crawl job #N ...", id="btn-process-job"),
                 classes="ops-button-row",
             ),
-            Static("[bold $accent]── Geocode Operations ──[/]", classes="ops-section"),
+            Static("[bold $accent]\u2500\u2500 Geocode Operations \u2500\u2500[/]", classes="ops-section"),
             Horizontal(
                 Button("Backfill geocode locations (dry run)", id="btn-geocode-dry"),
                 Button("Backfill geocode locations (apply)", id="btn-geocode-apply"),
@@ -84,16 +76,9 @@ class OperationsScreen(Screen[object]):
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        bid = event.button.id or ""
-        if bid.startswith("nav-"):
-            screen_map = {
-                "d": "dashboard", "s": "sources", "e": "events",
-                "l": "locations", "t": "tag_rules",
-                "o": "operations", "g": "logs",
-            }
-            key = bid[4:]
-            if key in screen_map:
-                self.app.switch_screen(screen_map[key])
+        screen = handle_nav_press(event.button.id or "")
+        if screen:
+            self.app.switch_screen(screen)
             return
 
         action = event.button.id
@@ -142,6 +127,8 @@ class OperationsScreen(Screen[object]):
         env_vars["API_BASE_URL"] = settings.api_base_url
         env_vars["SYNC_API_KEY"] = settings.sync_api_key
         env_vars["PYTHONUTF8"] = "1"
+        # Keep TUI-triggered runs inline against the local API; Celery handoff
+        # is controlled server-side by USE_CELERY on the deployed pipeline job.
         env_vars["USE_CELERY"] = "false"
 
         out.clear()
@@ -150,7 +137,7 @@ class OperationsScreen(Screen[object]):
             f"[dim]{cmd}[/dim]\n"
             f"[dim]API_BASE_URL={env_vars['API_BASE_URL']}[/dim]\n"
         )
-        status.update("[yellow]Running: Crawl pipeline...[/yellow]")
+        status.update("[yellow]\u25cc Running: Crawl pipeline...[/yellow]")
 
         try:
             env = {**os.environ, **env_vars}
@@ -174,13 +161,13 @@ class OperationsScreen(Screen[object]):
                     "[green]Pipeline completed. Handoff triggered via "
                     f"{env_vars['API_BASE_URL']}.[/green]"
                 )
-                status.update("[green]Completed[/green]")
+                status.update("[green]\u2714 Completed[/green]")
             else:
                 out.write("[red]Pipeline failed — check output above.[/red]")
-                status.update("[red]Failed[/red]")
+                status.update("[red]\u2716 Failed[/red]")
         except Exception as e:
             out.write(f"[red]Pipeline error: {e}[/red]")
-            status.update("[red]Failed[/red]")
+            status.update("[red]\u2716 Failed[/red]")
 
     # ------------------------------------------------------------------
     # Shell command runner
@@ -192,7 +179,7 @@ class OperationsScreen(Screen[object]):
 
         out.clear()
         out.write(f"[yellow]Running: {cmd}[/yellow]\n")
-        status.update("[yellow]Running command...[/yellow]")
+        status.update("[yellow]\u25cc Running command...[/yellow]")
 
         try:
             proc = await asyncio.create_subprocess_shell(
@@ -209,12 +196,12 @@ class OperationsScreen(Screen[object]):
             out.write(f"[bold]Exit code: {proc.returncode}[/bold]\n")
 
             if proc.returncode == 0:
-                status.update("[green]Completed[/green]")
+                status.update("[green]\u2714 Completed[/green]")
             else:
-                status.update("[red]Failed[/red]")
+                status.update("[red]\u2716 Failed[/red]")
         except Exception as e:
             out.write(f"[red]Error: {e}[/red]")
-            status.update("[red]Failed[/red]")
+            status.update("[red]\u2716 Failed[/red]")
 
     # ------------------------------------------------------------------
     # HTTP processing helpers
@@ -276,10 +263,10 @@ class OperationsScreen(Screen[object]):
             ok, msg = await self._call_process_endpoint(job_id)
             if ok:
                 out.write(f"[green]{msg}[/green]")
-                status.update("[green]Completed[/green]")
+                status.update("[green]\u2714 Completed[/green]")
             else:
                 out.write(f"[red]{msg}[/red]")
-                status.update("[red]Failed[/red]")
+                status.update("[red]\u2716 Failed[/red]")
         finally:
             await session.close()
 
@@ -359,7 +346,7 @@ class OperationsScreen(Screen[object]):
             f"\n[bold]Done: {ok_count} ok, {fail_count} failed[/bold]\n"
             + "\n".join(lines[-20:])
         )
-        status.update("[green]Completed[/green]")
+        status.update("[green]\u2714 Completed[/green]")
 
     async def _process_specific_job(self) -> None:
         out = self._log()
@@ -382,10 +369,10 @@ class OperationsScreen(Screen[object]):
         ok, msg = await self._call_process_endpoint(job_id)
         if ok:
             out.write(f"[green]{msg}[/green]")
-            status.update("[green]Completed[/green]")
+            status.update("[green]\u2714 Completed[/green]")
         else:
             out.write(f"[red]{msg}[/red]")
-            status.update("[red]Failed[/red]")
+            status.update("[red]\u2716 Failed[/red]")
 
     async def _geocode_apply(self) -> None:
         confirmed = await self.app.push_screen_wait(

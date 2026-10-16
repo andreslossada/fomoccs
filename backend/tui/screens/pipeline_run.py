@@ -10,7 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Label, Static
+from textual.widgets import Footer, Header, Label, ProgressBar, Static
 
 from tui.screens.help import HelpModal
 
@@ -49,15 +49,18 @@ class PipelineRunScreen(Screen[None]):
             f"[bold reverse #00bcd4]  Crawling: {label}  [/]",
             id="screen-title",
         )
-        yield Label(f"[bold]Crawling: {label}[/bold]", id="breadcrumb")
+        yield Label(f"[bold]\u25b8 Crawling: {label}[/bold]", id="breadcrumb")
         yield Container(
             Static("", id="pipeline-status"),
+            ProgressBar(total=100, show_eta=False, id="pipeline-progress"),
             Static("[dim]Launching pipeline...[/dim]", id="pipeline-output"),
             id="pipeline-container",
         )
         yield Footer()
 
     def on_mount(self) -> None:
+        bar = self.query_one("#pipeline-progress", ProgressBar)
+        bar.update(progress=0)
         self.run_worker(self._run_pipeline())
 
     async def _run_pipeline(self) -> None:
@@ -66,6 +69,7 @@ class PipelineRunScreen(Screen[None]):
 
         output = self.query_one("#pipeline-output", Static)
         status_bar = self.query_one("#pipeline-status", Static)
+        bar = self.query_one("#pipeline-progress", ProgressBar)
         status_bar.update("[yellow]Running pipeline...[/yellow]")
 
         merged_env = os.environ.copy()
@@ -88,6 +92,11 @@ class PipelineRunScreen(Screen[None]):
             source_count = 0
             current_step = "booting"
             t0 = time.time()
+
+            _step_progress: dict[str, int] = {
+                "booting": 5, "scanning": 15, "crawling": 50,
+                "extracting": 80, "saving": 95,
+            }
 
             while proc.stdout is not None:
                 try:
@@ -128,9 +137,13 @@ class PipelineRunScreen(Screen[None]):
                     current_step = "extracting"
                     status_bar.update("[yellow]Extracting events...[/yellow]")
                 elif "STEP 4" in text:
+                    current_step = "saving"
                     status_bar.update("[yellow]Saving...[/yellow]")
                 elif "PIPELINE COMPLETED" in text:
                     status_bar.update("[green]Pipeline finished![/green]")
+                    bar.update(progress=100)
+
+                bar.update(progress=_step_progress.get(current_step, 50))
 
                 # Parse JSON event lines for progress
                 if text.startswith('{"event":'):
@@ -194,6 +207,7 @@ class PipelineRunScreen(Screen[None]):
             elapsed = int(time.time() - t0)
 
             if proc.returncode == 0:
+                bar.update(progress=100)
                 status_bar.update(
                     f"[green]Done in {elapsed}s — "
                     f"{event_count} events extracted[/green]"
@@ -205,6 +219,7 @@ class PipelineRunScreen(Screen[None]):
                     timeout=8,
                 )
             else:
+                bar.update(progress=0)
                 status_bar.update(
                     f"[red]Failed (exit {proc.returncode})[/red]"
                 )
@@ -223,16 +238,20 @@ class PipelineRunScreen(Screen[None]):
                 )
 
         except FileNotFoundError:
+            bar.update(progress=0)
             output.update(
                 "[red]Python not found. Is the pipeline venv set up?[/red]\n"
                 "[dim]Run: cd pipeline && uv sync[/dim]"
             )
             status_bar.update("[red]Venv not found[/red]")
         except Exception as e:
+            bar.update(progress=0)
             output.update(f"[red]Error launching pipeline: {e}[/red]")
             status_bar.update("[red]Launch error[/red]")
 
     def action_rerun(self) -> None:
+        bar = self.query_one("#pipeline-progress", ProgressBar)
+        bar.update(progress=0)
         output = self.query_one("#pipeline-output", Static)
         output.update("[dim]Re-running...[/dim]")
         self.run_worker(self._run_pipeline())

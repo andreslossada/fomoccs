@@ -14,8 +14,8 @@ from api.models.event import Event
 from tui.db import count_events, list_events
 from tui.screens.base import BaseListScreen
 from tui.screens.events_detail import EventDetailScreen
-from tui.widgets.status_badge import format_status
 from tui.utils import relative_time
+from tui.widgets.status_badge import format_status
 
 
 class EventsScreen(BaseListScreen):

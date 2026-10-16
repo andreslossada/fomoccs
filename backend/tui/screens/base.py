@@ -17,6 +17,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label
 from tui.db import get_session
 from tui.screens.help import HelpModal
 from tui.widgets.loading import LoadingIndicator
+from tui.widgets.nav_tabs import compose_nav_tabs, handle_nav_press
 
 
 class BaseListScreen(Screen[object]):
@@ -26,9 +27,9 @@ class BaseListScreen(Screen[object]):
       - _table_id: CSS id for the DataTable widget
       - _columns: list of column header strings
       - _title: breadcrumb label text
-      - _load_page(session, offset, limit) → list[dict]
-      - _count_total(session) → int
-      - _render_row(item: dict) → list[str]  (values matching _columns order)
+      - _load_page(session, offset, limit) -> list[dict]
+      - _count_total(session) -> int
+      - _render_row(item: dict) -> list[str]  (values matching _columns order)
 
     Optional overrides:
       - _page_size (default 50)
@@ -77,8 +78,8 @@ class BaseListScreen(Screen[object]):
             f"[bold reverse #00bcd4]  {self._title}  [/]",
             id="screen-title",
         )
-        yield from self._nav_tabs()
-        yield Label(f"[bold]▸ {self._title}[/bold]", id="breadcrumb")
+        yield from compose_nav_tabs()
+        yield Label(f"[bold]\u25b8 {self._title}[/bold]", id="breadcrumb")
         with Horizontal(id="filters"):
             if self._has_search:
                 yield Input(
@@ -91,35 +92,10 @@ class BaseListScreen(Screen[object]):
         yield Label("", id="empty-state")
         yield Footer()
 
-    def _nav_tabs(self) -> ComposeResult:
-        screens = [
-            ("d", "Dashboard"),
-            ("s", "Sources"),
-            ("e", "Events"),
-            ("l", "Locations"),
-            ("t", "Rules"),
-            ("o", "Ops"),
-            ("g", "Logs"),
-        ]
-        with Horizontal(id="nav-tabs"):
-            for key, label in screens:
-                yield Button(label, id=f"nav-{key}", classes="nav-tab")
-
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        bid = event.button.id or ""
-        if bid.startswith("nav-"):
-            key = bid[4:]
-            screen_map = {
-                "d": "dashboard",
-                "s": "sources",
-                "e": "events",
-                "l": "locations",
-                "t": "tag_rules",
-                "o": "operations",
-                "g": "logs",
-            }
-            if key in screen_map:
-                self.app.switch_screen(screen_map[key])
+        screen = handle_nav_press(event.button.id or "")
+        if screen:
+            self.app.switch_screen(screen)
 
     def _extra_filters(self) -> ComposeResult:
         yield from ()
@@ -233,10 +209,15 @@ class BaseDetailScreen(Screen[object]):
             f"[bold reverse #00bcd4]  {self._title}  [/]",
             id="screen-title",
         )
-        yield from self._nav_tabs()
-        yield Label(f"[bold]▸ {self._title}[/bold]", id="breadcrumb")
+        yield from compose_nav_tabs()
+        yield Label(f"[bold]\u25b8 {self._title}[/bold]", id="breadcrumb")
         yield from self._detail_widgets()
         yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        screen = handle_nav_press(event.button.id or "")
+        if screen:
+            self.app.switch_screen(screen)
 
     def _detail_widgets(self) -> ComposeResult:
         yield from ()

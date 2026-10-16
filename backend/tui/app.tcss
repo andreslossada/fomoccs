@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   FomoCCS Admin TUI — global stylesheet (Textual CSS)
+   FomoCCS Admin TUI — global stylesheet (Textual CSS v2)
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Base ────────────────────────────────────────────────────────────────── */
@@ -29,23 +29,59 @@ Footer {
 #screen-title {
     dock: top;
     height: 1;
-    background: $primary;
+    background: $primary-darken-1 80%;
     color: $text;
     text-style: bold;
     content-align: center middle;
     padding: 0 2;
     width: 100%;
+    border-bottom: solid $primary;
 }
 
 #breadcrumb {
     dock: top;
     height: 1;
-    background: $primary 10%;
-    color: $primary;
+    background: $primary 8%;
+    color: $primary-lighten-1;
     text-style: bold;
     padding: 0 2;
-    border-bottom: solid $primary;
+    border-bottom: solid $primary 30%;
 }
+
+/* ── Navigation tabs ───────────────────────────────────────────────────── */
+
+#nav-tabs {
+    dock: top;
+    height: 1;
+    background: $panel-darken-1;
+    border-bottom: solid $primary-darken-1 60%;
+}
+
+#nav-tabs Button {
+    min-width: 13;
+    max-width: 18;
+    margin: 0;
+    border: none;
+    border-bottom: tall transparent;
+    background: transparent;
+    color: $text-muted;
+    content-align: center middle;
+    text-style: none;
+}
+
+#nav-tabs Button:hover {
+    background: $primary 12%;
+    color: $text;
+    border-bottom: tall $primary 40%;
+}
+
+#nav-tabs Button.-active {
+    background: $primary 18%;
+    color: $primary-lighten-1;
+    text-style: bold;
+    border-bottom: tall $primary;
+}
+
 
 /* ── Dashboard grid ─────────────────────────────────────────────────────── */
 
@@ -57,20 +93,27 @@ Footer {
     padding: 1 2;
 }
 
-
 #dashboard-grid Static {
     height: auto;
-    min-height: 4;
+    min-height: 5;
     content-align: left top;
     padding: 0;
     margin: 0;
 }
 
+#health { border-left: thick $success; }
+#crawls { border-left: thick $warning; }
+#events-stats { border-left: thick $success; }
+#sources { border-left: thick $primary; }
+#llm { border-left: thick $accent; }
+#recent-events { border-left: thick $secondary; }
+
 #last-crawls {
     height: auto;
-    min-height: 4;
+    min-height: 3;
     padding: 0;
     margin: 0 2 1 2;
+    border-left: thick $primary;
 }
 
 #dash-spinner {
@@ -78,6 +121,7 @@ Footer {
     padding: 0 2;
     margin-bottom: 1;
 }
+
 
 /* ── Filter bar ─────────────────────────────────────────────────────────── */
 
@@ -94,11 +138,12 @@ Footer {
     margin-right: 2;
     height: auto;
     min-height: 1;
-    border: solid $accent 60%;
+    border: solid $accent;
 }
 
 #filters Input:focus {
     border: solid $accent;
+    background: $surface;
 }
 
 #filters Label {
@@ -115,6 +160,7 @@ Footer {
     width: auto;
 }
 
+
 /* ── DataTables ─────────────────────────────────────────────────────────── */
 
 DataTable {
@@ -123,17 +169,35 @@ DataTable {
     background: $surface;
 }
 
-DataTable > .datatable--cursor {
-    background: $primary 25%;
-    color: $text;
-}
-
 DataTable > .datatable--header {
-    background: $primary 18%;
+    background: $primary 10%;
     color: $primary-lighten-1;
     text-style: bold;
     height: 1;
 }
+
+DataTable > .datatable--cursor {
+    background: $primary 12%;
+    color: $text;
+    border-left: thick $accent;
+}
+
+DataTable > .datatable--fixed {
+    background: $surface;
+}
+
+DataTable > .datatable--odd-row {
+    background: $panel 30%;
+}
+
+DataTable > .datatable--even-row {
+    background: $surface;
+}
+
+DataTable:focus > .datatable--cursor {
+    border-left: thick $accent;
+}
+
 
 /* ── Loading / Empty states ─────────────────────────────────────────────── */
 
@@ -146,19 +210,24 @@ LoadingIndicator {
 
 #empty-state {
     height: auto;
-    padding: 2;
+    padding: 3 2;
     content-align: center middle;
     color: $text-muted;
+    border: dashed $panel;
+    margin: 2 4;
 }
+
 
 /* ── Status badges ──────────────────────────────────────────────────────── */
 
 StatusBadge {
     width: auto;
     height: 1;
-    padding: 0 1;
+    padding: 0 2;
     content-align: center middle;
+    text-style: bold;
 }
+
 
 /* ── Detail containers ──────────────────────────────────────────────────── */
 
@@ -183,9 +252,23 @@ StatusBadge {
     text-style: bold;
 }
 
+#source-meta,
+#event-meta,
+#loc-meta {
+    height: auto;
+    min-height: 3;
+}
+
 #detail-spinner {
     padding: 1 2;
 }
+
+.detail-section {
+    padding: 1 0;
+    margin-top: 1;
+    border-top: solid $panel;
+}
+
 
 /* ── Source wizard ──────────────────────────────────────────────────────── */
 
@@ -243,11 +326,17 @@ StatusBadge {
     margin-right: 2;
 }
 
+#wizard-actions .btn-destructive {
+    border: solid $error;
+    color: $error;
+}
+
 #sw-status {
     margin-top: 1;
     color: $text;
     height: 1;
 }
+
 
 /* ── Pipeline run screen ────────────────────────────────────────────────── */
 
@@ -266,6 +355,12 @@ StatusBadge {
     text-style: bold;
 }
 
+#pipeline-progress {
+    width: 100%;
+    height: 1;
+    margin-bottom: 1;
+}
+
 #pipeline-output {
     height: 1fr;
     overflow-y: auto;
@@ -273,14 +368,15 @@ StatusBadge {
     padding: 1;
 }
 
+
 /* ── Operations ─────────────────────────────────────────────────────────── */
 
 #operations-container {
-    padding: 2;
+    padding: 1 2;
 }
 
 .ops-section {
-    border-bottom: solid $accent 50%;
+    border-bottom: solid $accent 40%;
     color: $accent;
     text-style: bold;
     padding: 1 0;
@@ -299,19 +395,28 @@ StatusBadge {
     min-width: 20;
 }
 
+.ops-button-row Button:disabled {
+    border: solid #555555;
+    color: #8b949e;
+    background: $panel-darken-1;
+}
+
+/* ── Buttons (global) ─────────────────────────────────────────────────── */
+
 Button {
     border: solid $primary 50%;
 }
 
 Button:hover {
     border: solid $accent;
-    background: $accent 15%;
+    background: $accent 12%;
 }
 
 Button:focus {
     border: solid $accent;
     text-style: bold;
 }
+
 
 #ops-status {
     height: 1;
@@ -325,7 +430,9 @@ Button:focus {
     border: solid $panel;
     padding: 1;
     min-height: 5;
+    background: $surface;
 }
+
 
 /* ── Logs ───────────────────────────────────────────────────────────────── */
 
@@ -344,25 +451,75 @@ Button:focus {
     padding: 1;
 }
 
-/* ── Dialogs ────────────────────────────────────────────────────────────── */
 
-ConfirmDialog > Static,
-InputDialog > Static {
-    padding: 2;
-    border: thick $accent;
-    background: $surface;
-    color: $text;
-}
+/* ── Dialogs ────────────────────────────────────────────────────────────── */
 
 ConfirmDialog {
     align: center middle;
+}
+
+ConfirmDialog > Vertical {
+    width: 54;
+    height: auto;
+    padding: 2 3;
+    border: thick $accent;
+    background: $surface;
+}
+
+ConfirmDialog > Vertical > Static {
+    padding: 1 0;
+    width: 100%;
+}
+
+ConfirmDialog > Vertical > Horizontal {
+    width: 100%;
+    height: auto;
+    align: center middle;
+    margin-top: 1;
+}
+
+ConfirmDialog > Vertical > Horizontal Button {
+    margin: 0 1;
+    min-width: 10;
 }
 
 InputDialog {
     align: center middle;
 }
 
-/* Help modal */
+InputDialog > Vertical {
+    width: 54;
+    height: auto;
+    padding: 2 3;
+    border: thick $accent;
+    background: $surface;
+}
+
+InputDialog > Vertical > Static {
+    padding: 1 0;
+    width: 100%;
+}
+
+InputDialog > Vertical > Input {
+    margin-top: 1;
+    width: 100%;
+}
+
+InputDialog > Vertical > Horizontal {
+    width: 100%;
+    height: auto;
+    align: center middle;
+    margin-top: 1;
+}
+
+InputDialog > Vertical > Horizontal Button {
+    margin: 0 1;
+    min-width: 10;
+}
+
+
+/* ── Help modal ────────────────────────────────────────────────────────── */
+
 #help-container {
     padding: 1 2;
     height: auto;
@@ -377,30 +534,32 @@ InputDialog {
     content-align: left top;
 }
 
-/* Navigation tabs */
-#nav-tabs {
-    dock: top;
+
+/* ── Notifications ─────────────────────────────────────────────────────── */
+
+Notification {
+    border: solid $accent;
+}
+
+
+/* ── Progress bar ──────────────────────────────────────────────────────── */
+
+ProgressBar {
+    width: 100%;
     height: 1;
-    background: $panel-darken-1;
-    border-bottom: solid $primary;
 }
 
-#nav-tabs Button {
-    min-width: 10;
-    max-width: 16;
-    margin: 0;
-    border: none;
-    background: transparent;
-    color: $text-muted;
-    content-align: center middle;
-}
-
-#nav-tabs Button:hover {
-    background: $primary 20%;
-    color: $text;
-}
-
-#nav-tabs Button.-active {
+ProgressBar > .bar--bar {
     background: $primary;
-    color: $text;
+}
+
+ProgressBar > .bar--complete {
+    background: $success;
+}
+
+
+/* ── Transitions / Animations ──────────────────────────────────────────── */
+
+Screen {
+    hatch: none;
 }

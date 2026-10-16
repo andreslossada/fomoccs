@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from rich.rule import Rule as RichRule
+from rich.table import Table as RichTable
 from sqlalchemy.ext.asyncio import AsyncSession
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -38,7 +39,7 @@ class LocationDetailScreen(Screen[object]):
         yield Label(
             "[bold reverse #00bcd4]  Location Detail  [/]", id="screen-title"
         )
-        yield Label("[bold]▸ Location Detail[/bold]", id="breadcrumb")
+        yield Label("[bold]\u25b8 Location Detail[/bold]", id="breadcrumb")
         with Vertical(id="location-detail"):
             yield LoadingIndicator("Loading location...", id="detail-spinner")
             yield Static("", id="loc-name")
@@ -80,18 +81,22 @@ class LocationDetailScreen(Screen[object]):
 
         lat = f"{loc.lat:.6f}" if loc.lat is not None else "[dim]N/A[/dim]"
         lng = f"{loc.lng:.6f}" if loc.lng is not None else "[dim]N/A[/dim]"
-        self.query_one("#loc-meta", Static).update(
-            f"[bold]Type:[/bold] {loc.type}    "
-            f"[bold]ID:[/bold] {loc.id}\n"
-            f"[bold]📍 Lat:[/bold] {lat}    "
-            f"[bold]📍 Lng:[/bold] {lng}\n"
-            f"[bold]Address:[/bold] {loc.address or '[dim]N/A[/dim]'}\n"
-            f"[bold]Short:[/bold] {loc.short_name or '—'}    "
-            f"[bold]Very Short:[/bold] {loc.very_short_name or '—'}\n"
-            f"[bold]Website:[/bold] {loc.website_url or '[dim]N/A[/dim]'}\n"
-            f"[bold]Created:[/bold] [dim]{loc.created_at}[/dim]    "
-            f"[bold]Updated:[/bold] [dim]{loc.updated_at}[/dim]"
+
+        table = RichTable(show_header=False, box=None, padding=(0, 2), expand=False)
+        table.add_column(style="bold cyan", width=14)
+        table.add_column(width=22)
+        table.add_column(style="bold cyan", width=14)
+        table.add_column()
+        table.add_row("Type", str(loc.type), "ID", str(loc.id))
+        table.add_row("\U0001f4cd Lat", lat, "\U0001f4cd Lng", lng)
+        table.add_row("Address", loc.address or "[dim]N/A[/dim]", "", "")
+        table.add_row("Short Name", loc.short_name or "\u2014", "Very Short", loc.very_short_name or "\u2014")
+        table.add_row("Website", loc.website_url or "[dim]N/A[/dim]", "", "")
+        table.add_row(
+            "Created", f"[dim]{loc.created_at}[/dim]",
+            "Updated", f"[dim]{loc.updated_at}[/dim]",
         )
+        self.query_one("#loc-meta", Static).update(str(table))
 
         desc = loc.description or "[dim]No description[/dim]"
         self.query_one("#loc-desc", Static).update(

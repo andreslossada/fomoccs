@@ -5,13 +5,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta, timezone
 
 import plotext as _plt
-from rich.panel import Panel
 from rich.rule import Rule
 from rich.text import Text
 from sqlalchemy.ext.asyncio import AsyncSession
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Grid, Horizontal
+from textual.containers import Grid
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Label, Static
 
@@ -32,18 +31,10 @@ from tui.db import (
 )
 from tui.screens.help import HelpModal
 from tui.widgets.loading import LoadingIndicator
+from tui.widgets.nav_tabs import compose_nav_tabs, handle_nav_press
 from tui.widgets.status_badge import format_status
 
 VET_TZ = timezone(timedelta(hours=-4))
-
-
-def _card(body: str, title: str, border: str = "cyan") -> Panel:
-    return Panel(
-        Text.from_markup(body),
-        title=title,
-        border_style=border,
-        padding=(1, 2),
-    )
 
 
 def _section(title: str) -> Rule:
@@ -56,12 +47,12 @@ def _sparkline(values: list[float] | list[int], color: str = "green") -> str:
         return ""
     try:
         _plt.clear_data()
-        _plt.bar(list(values), fill_color=color, marker="")
+        _plt.bar(list(values), fill_color=color, marker="\u258c")
         _plt.frame(False)
         _plt.canvas_color("none")
         _plt.axes_color("none")
         _plt.ticks_color("none")
-        _plt.plotsize(100, 25)
+        _plt.plotsize(100, 22)
         return _plt.build().strip()
     except Exception:
         return ""
@@ -87,8 +78,8 @@ class DashboardScreen(Screen[object]):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield Label("[bold reverse #00bcd4]  Dashboard  [/]", id="screen-title")
-        yield from self._nav_tabs()
-        yield Label("[bold]▸ Dashboard[/bold]", id="breadcrumb")
+        yield from compose_nav_tabs()
+        yield Label("[bold]\u25b8 Dashboard[/bold]", id="breadcrumb")
         with Grid(id="dashboard-grid"):
             yield Static("", id="health")
             yield Static("", id="crawls")
@@ -130,45 +121,36 @@ class DashboardScreen(Screen[object]):
 
     async def _update_health(self, session: AsyncSession) -> None:
         ok = await db_ping(session)
-        status = format_status("connected" if ok else "disconnected")
+        if ok:
+            body = "[bold green]\u25cf Connected[/bold green]\n[dim]Supabase PostgreSQL[/dim]"
+        else:
+            body = "[bold red]\u2716 Disconnected[/bold red]\n[dim]Supabase PostgreSQL[/dim]"
         self.query_one("#health", Static).update(
-            _card(
-                f"{status}\n[dim]Supabase PostgreSQL[/dim]",
-                title="🗄️  DB Status",
-                border="green" if ok else "red",
-            )
+            f"[bold]DB Status[/bold]\n{Text.from_markup(body)}"
         )
 
     async def _update_crawls(self, session: AsyncSession) -> None:
         jobs = await active_crawl_jobs(session)
         stuck = await count_stuck_jobs(session)
-        if not jobs and not stuck:
-            self.query_one("#crawls", Static).update(
-                _card(
-                    "[dim]No active crawls[/dim]",
-                    title="🔄  Active Crawls",
-                    border="#666666",
+        lines: list[str] = ["[bold]Active Crawls[/bold]", ""]
+        if not jobs:
+            lines.append("[dim]No active crawls[/dim]")
+        else:
+            lines.append(f"[bold yellow]{len(jobs) or 0} running[/bold yellow]")
+            now = datetime.now(UTC).replace(tzinfo=None)
+            for job in (jobs or [])[:5]:
+                elapsed = ""
+                if job.started_at is not None:
+                    delta = int((now - job.started_at).total_seconds())
+                    elapsed = f" ({delta}s)"
+                lines.append(
+                    f"  {format_status('running')} #{job.id}{elapsed}"
                 )
-            )
-            return
-        now = datetime.now(UTC).replace(tzinfo=None)
-        lines: list[str] = [f"[bold]{len(jobs) or 0} running[/bold]\n"]
-        for job in (jobs or [])[:5]:
-            elapsed = ""
-            if job.started_at is not None:
-                delta = int((now - job.started_at).total_seconds())
-                elapsed = f" ({delta}s)"
-            lines.append(
-                f"  {format_status('running')} #{job.id}{elapsed}"
-            )
         if stuck:
             lines.append(
-                f"\n[bold dim]⚠  Stuck (>2h): {stuck}[/bold dim]"
+                f"\n[bold dim]\u26a0  Stuck (>2h): {stuck}[/bold dim]"
             )
-        self.query_one("#crawls", Static).update(
-            _card("\n".join(lines), title="🔄  Active Crawls",
-                  border="yellow" if jobs else "#666666")
-        )
+        self.query_one("#crawls", Static).update("\n".join(lines))
 
     async def _update_events(self, session: AsyncSession) -> None:
         today = await recent_events_count(session)
@@ -180,12 +162,12 @@ class DashboardScreen(Screen[object]):
         hourly = await hourly_events_last_24h(session)
         if hourly:
             sparkline = _sparkline(hourly, "green")
-        body = f"Today: [bold]{today}[/bold] new\n{status_parts}"
+        lines = ["[bold]Events[/bold]", ""]
+        lines.append(f"Today: [bold green]{today:,}[/bold green] new")
+        lines.append(f"\n{status_parts}")
         if sparkline:
-            body += f"\n\n{sparkline}"
-        self.query_one("#events-stats", Static).update(
-            _card(body, title="📅  Events", border="green")
-        )
+            lines.append(f"\n[dim]Last 24h:[/dim]\n{sparkline}")
+        self.query_one("#events-stats", Static).update("\n".join(lines))
 
     async def _update_sources(self, session: AsyncSession) -> None:
         summary = await sources_summary(session)
@@ -193,16 +175,14 @@ class DashboardScreen(Screen[object]):
         tier_parts = "  ".join(
             f"[bold]T{t}[/bold]: {c}" for t, c in sorted(by_tier.items())
         )
-        self.query_one("#sources", Static).update(
-            _card(
-                f"Total: [bold]{summary['total']}[/bold]  "
-                f"{format_status('active')} {summary['active']}  "
-                f"{format_status('disabled', icon=False)} {summary['disabled']}\n\n"
-                f"{tier_parts}",
-                title="📡  Sources",
-                border="cyan",
-            )
+        lines = ["[bold]Sources[/bold]", ""]
+        lines.append(
+            f"Total: [bold cyan]{summary['total']:,}[/bold cyan]  "
+            f"{format_status('active')} {summary['active']}  "
+            f"{format_status('disabled', icon=False)} {summary['disabled']}"
         )
+        lines.append(f"\n[dim]{tier_parts}[/dim]")
+        self.query_one("#sources", Static).update("\n".join(lines))
 
     async def _update_llm(self, session: AsyncSession) -> None:
         usage = await llm_usage_today(session)
@@ -214,85 +194,59 @@ class DashboardScreen(Screen[object]):
         costs = await hourly_llm_cost_last_24h(session)
         if costs:
             sparkline = _sparkline(costs, "#ffab40")
-        body = (
-            f"Calls: [bold]{calls:,}[/bold]  "
+        lines = ["[bold]LLM Today[/bold]", ""]
+        lines.append(
+            f"Calls: [bold accent]{calls:,}[/bold accent]\n"
             f"In: {inp:,}  Out: {out:,}\n"
-            f"Est. Cost: [bold accent]${cost:.4f}[/bold accent]"
+            f"Cost: [bold accent]${cost:.4f}[/bold accent]"
         )
         if sparkline:
-            body += f"\n\n{sparkline}"
-        self.query_one("#llm", Static).update(
-            _card(body, title="🤖  LLM Today", border="#ffab40")
-        )
+            lines.append(f"\n[dim]Last 24h:[/dim]\n{sparkline}")
+        self.query_one("#llm", Static).update("\n".join(lines))
 
     async def _update_recent(self, session: AsyncSession) -> None:
         events = await recent_events_for_dashboard(session, limit=10)
+        lines: list[str] = ["[bold]Recent Events[/bold]", ""]
         if not events:
-            self.query_one("#recent-events", Static).update(
-                _card("[dim]No events yet[/dim]",
-                      title="🆕  Recent Events", border="#666666")
-            )
-            return
-        lines: list[str] = []
-        for ev in events:
-            emoji = ev.get("emoji") or "•"
-            name = str(ev.get("name", ""))[:40]
-            loc = str(ev.get("location_name", ""))[:20]
-            lines.append(f"{emoji} {name}")
-            if loc:
-                lines.append(f"  [dim]@{loc}[/dim]")
-        self.query_one("#recent-events", Static).update(
-            _card("\n".join(lines), title="🆕  Recent Events", border="#7c4dff")
-        )
+            lines.append("[dim]No events yet[/dim]")
+        else:
+            for ev in events:
+                emoji = ev.get("emoji") or "\u2022"
+                name = str(ev.get("name", ""))[:40]
+                loc = str(ev.get("location_name", ""))[:20]
+                line = f"[bold]{emoji}[/bold] {name}"
+                if loc:
+                    line += f"\n  [dim]@{loc}[/dim]"
+                lines.append(line)
+        self.query_one("#recent-events", Static).update("\n".join(lines))
 
     async def _update_last_crawls(self, session: AsyncSession) -> None:
-        jobs = await recent_crawl_jobs_for_dashboard(session, limit=3)
+        jobs = await recent_crawl_jobs_for_dashboard(session, limit=4)
+        lines: list[str] = ["[bold]Last Crawls[/bold]", ""]
         if not jobs:
-            self.query_one("#last-crawls", Static).update(
-                _card("[dim]No crawl history[/dim]",
-                      title="📊  Last Crawls", border="#666666")
-            )
-            return
-        lines: list[str] = []
-        for job in jobs:
-            status = format_status(str(job.status))
-            extra = ""
-            if job.summary is not None:
-                calls = job.summary.api_calls
-                cost = float(job.summary.estimated_cost)
-                extra = f" — {calls} calls, ${cost:.4f}"
-            if job.started_at is not None:
-                local = job.started_at.replace(tzinfo=UTC).astimezone(VET_TZ)
-                started = str(local)[:16]
-            else:
-                started = "?"
-            lines.append(
-                f"{status} #{job.id} [dim]{started}[/dim]{extra}"
-            )
-        self.query_one("#last-crawls", Static).update(
-            _card("\n".join(lines), title="📊  Last Crawls", border="cyan")
-        )
+            lines.append("[dim]No crawl history[/dim]")
+        else:
+            for job in jobs:
+                status = format_status(str(job.status))
+                extra = ""
+                if job.summary is not None:
+                    calls = job.summary.api_calls
+                    cost = float(job.summary.estimated_cost)
+                    extra = f" — {calls} calls, ${cost:.4f}"
+                if job.started_at is not None:
+                    local = job.started_at.replace(tzinfo=UTC).astimezone(VET_TZ)
+                    started = str(local)[:16]
+                else:
+                    started = "?"
+                lines.append(
+                    f"{status} #{job.id} [dim]{started}[/dim]{extra}"
+                )
+        self.query_one("#last-crawls", Static).update("\n".join(lines))
 
     def action_refresh(self) -> None:
         self.refresh_data()
 
-    def _nav_tabs(self) -> ComposeResult:
-        screens = [
-            ("d", "Dashboard"), ("s", "Sources"), ("e", "Events"),
-            ("l", "Locations"), ("t", "Rules"), ("o", "Ops"), ("g", "Logs"),
-        ]
-        with Horizontal(id="nav-tabs"):
-            for key, label in screens:
-                yield Button(label, id=f"nav-{key}")
-
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        bid = event.button.id or ""
-        if not bid.startswith("nav-"):
-            return
-        screen_map = {
-            "d": "dashboard", "s": "sources", "e": "events",
-            "l": "locations", "t": "tag_rules", "o": "operations", "g": "logs",
-        }
-        key = bid[4:]
-        if key in screen_map:
-            self.app.switch_screen(screen_map[key])
+        screen = handle_nav_press(event.button.id or "")
+        if screen:
+            self.app.switch_screen(screen)

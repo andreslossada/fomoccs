@@ -5,13 +5,14 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal
+from textual.containers import Container
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Label, Static
 
 from tui.db import get_session, recent_crawl_errors, recent_crawl_results
 from tui.screens.help import HelpModal
 from tui.widgets.loading import LoadingIndicator
+from tui.widgets.nav_tabs import compose_nav_tabs, handle_nav_press
 
 
 class LogsScreen(Screen[object]):
@@ -38,8 +39,8 @@ class LogsScreen(Screen[object]):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield Label("[bold reverse #00bcd4]  Logs  [/]", id="screen-title")
-        yield from self._nav_tabs()
-        yield Label("[bold]Logs[/bold]", id="breadcrumb")
+        yield from compose_nav_tabs()
+        yield Label("[bold]\u25b8 Logs[/bold]", id="breadcrumb")
         yield Container(
             Static(
                 "[bold]Recent Crawl Activity[/bold] [dim](r:refresh e:errors a:all)[/dim]",
@@ -50,6 +51,11 @@ class LogsScreen(Screen[object]):
             id="logs-container",
         )
         yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        screen = handle_nav_press(event.button.id or "")
+        if screen:
+            self.app.switch_screen(screen)
 
     async def on_mount(self) -> None:
         await self._load_logs()
@@ -122,24 +128,3 @@ class LogsScreen(Screen[object]):
 
     def action_refresh(self) -> None:
         self.run_worker(self._load_logs())
-
-    def _nav_tabs(self) -> ComposeResult:
-        screens = [
-            ("d", "Dashboard"), ("s", "Sources"), ("e", "Events"),
-            ("l", "Locations"), ("t", "Rules"), ("o", "Ops"), ("g", "Logs"),
-        ]
-        with Horizontal(id="nav-tabs"):
-            for key, label in screens:
-                yield Button(label, id=f"nav-{key}")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        bid = event.button.id or ""
-        if not bid.startswith("nav-"):
-            return
-        screen_map = {
-            "d": "dashboard", "s": "sources", "e": "events",
-            "l": "locations", "t": "tag_rules", "o": "operations", "g": "logs",
-        }
-        key = bid[4:]
-        if key in screen_map:
-            self.app.switch_screen(screen_map[key])

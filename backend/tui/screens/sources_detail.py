@@ -39,7 +39,7 @@ class SourceDetailScreen(Screen[object]):
         yield Label(
             "[bold reverse #00bcd4]  Source Detail  [/]", id="screen-title"
         )
-        yield Label("[bold]▸ Source Detail[/bold]", id="breadcrumb")
+        yield Label("[bold]\u25b8 Source Detail[/bold]", id="breadcrumb")
         with Vertical(id="source-detail"):
             yield LoadingIndicator("Loading source...", id="detail-spinner")
             yield Static("", id="source-name")
@@ -79,15 +79,22 @@ class SourceDetailScreen(Screen[object]):
             f"[bold reverse]  {s.name}  [/bold reverse]"
         )
 
-        self.query_one("#source-meta", Static).update(
-            f"[bold]Type:[/bold] {s.type}    "
-            f"[bold]Tier:[/bold] T{s.tier}    "
-            f"[bold]Status:[/bold] {status}\n"
-            f"[bold]Trust Level:[/bold] {s.trust_level or '—'}    "
-            f"[bold]Rate Limit:[/bold] {s.min_request_interval_seconds or '—'}s\n"
-            f"[bold]Created:[/bold] [dim]{s.created_at}[/dim]    "
-            f"[bold]Updated:[/bold] [dim]{s.updated_at}[/dim]"
+        table = RichTable(show_header=False, box=None, padding=(0, 2), expand=False)
+        table.add_column(style="bold cyan", width=16)
+        table.add_column(width=22)
+        table.add_column(style="bold cyan", width=16)
+        table.add_column()
+        table.add_row("Type", str(s.type), "Tier", f"T{s.tier}")
+        table.add_row("Status", status, "Trust Level", str(s.trust_level or "\u2014"))
+        table.add_row(
+            "Rate Limit", f"{s.min_request_interval_seconds or '\u2014'}s",
+            "", "",
         )
+        table.add_row(
+            "Created", f"[dim]{s.created_at}[/dim]",
+            "Updated", f"[dim]{s.updated_at}[/dim]",
+        )
+        self.query_one("#source-meta", Static).update(str(table))
 
         # URLs
         urls: list[object] = getattr(s, "urls", [])
@@ -97,9 +104,9 @@ class SourceDetailScreen(Screen[object]):
                 url_val = getattr(u, "url", "")
                 deleted = getattr(u, "deleted_at", None)
                 if deleted:
-                    lines.append(f"  [dim]🔗 {url_val} (deleted)[/dim]")
+                    lines.append(f"  [dim]\U0001f517 {url_val} (deleted)[/dim]")
                 else:
-                    lines.append(f"  🔗 {url_val}")
+                    lines.append(f"  \U0001f517 {url_val}")
             self.query_one("#source-urls", Static).update("\n".join(lines))
         else:
             self.query_one("#source-urls", Static).update(
@@ -117,17 +124,17 @@ class SourceDetailScreen(Screen[object]):
                 padding=(0, 2),
                 expand=False,
             )
-            table.add_column(style="bold cyan")
+            table.add_column(style="bold cyan", width=16)
             table.add_column()
             table.add_row("Mode", mode)
             if mode == "instagram":
                 ig_cfg = getattr(config, "json_api_config", None) or {}
-                table.add_row("IG Username", str(ig_cfg.get("username", "—")))
+                table.add_row("IG Username", str(ig_cfg.get("username", "\u2014")))
                 table.add_row("IG Max Posts", str(ig_cfg.get("max_posts", 20)))
             table.add_row("Frequency", f"{getattr(config, 'crawl_frequency', '-')} days")
             table.add_row("Max Pages", str(getattr(config, "max_pages", "-")))
-            table.add_row("Selector", str(getattr(config, "selector") or "—"))
-            table.add_row("Keywords", str(getattr(config, "keywords") or "—"))
+            table.add_row("Selector", str(getattr(config, "selector") or "\u2014"))
+            table.add_row("Keywords", str(getattr(config, "keywords") or "\u2014"))
             table.add_row("Text Mode", str(getattr(config, "text_mode", False)))
             table.add_row("Stealth", str(getattr(config, "use_stealth", False)))
             table.add_row("Timeout", f"{getattr(config, 'crawl_timeout') or '-'}s")

@@ -17,8 +17,8 @@ from tui.screens.base import BaseListScreen
 from tui.screens.pipeline_run import PipelineRunScreen
 from tui.screens.source_wizard import SourceWizardScreen
 from tui.screens.sources_detail import SourceDetailScreen
-from tui.widgets.status_badge import format_status
 from tui.utils import relative_time
+from tui.widgets.status_badge import format_status
 
 VET_TZ = timezone(timedelta(hours=-4))
 

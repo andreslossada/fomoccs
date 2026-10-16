@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from rich.rule import Rule as RichRule
+from rich.table import Table as RichTable
 from sqlalchemy.ext.asyncio import AsyncSession
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -38,7 +39,7 @@ class EventDetailScreen(Screen[object]):
         yield Label(
             "[bold reverse #00bcd4]  Event Detail  [/]", id="screen-title"
         )
-        yield Label("[bold]▸ Event Detail[/bold]", id="breadcrumb")
+        yield Label("[bold]\u25b8 Event Detail[/bold]", id="breadcrumb")
         with Vertical(id="event-detail"):
             yield LoadingIndicator("Loading event...", id="detail-spinner")
             yield Static("", id="event-name")
@@ -77,19 +78,28 @@ class EventDetailScreen(Screen[object]):
         self.query_one("#event-name", Static).update(
             f"[bold reverse]  {emoji} {ev.name}  [/bold reverse]"
         )
-        self.query_one("#event-meta", Static).update(
-            f"[bold]Status:[/bold] {status}    "
-            f"[bold]ID:[/bold] {ev.id}\n"
-            f"[bold]Location:[/bold] "
-            f"{ev.location.name if ev.location else '[dim]N/A[/dim]'}\n"
-            f"[bold]Sublocation:[/bold] {ev.sublocation or '[dim]—[/dim]'}\n"
-            f"[bold]Created:[/bold] [dim]{ev.created_at}[/dim]    "
-            f"[bold]Updated:[/bold] [dim]{ev.updated_at}[/dim]"
+
+        table = RichTable(show_header=False, box=None, padding=(0, 2), expand=False)
+        table.add_column(style="bold cyan", width=14)
+        table.add_column(width=20)
+        table.add_column(style="bold cyan", width=14)
+        table.add_column()
+        table.add_row("Status", status, "ID", str(ev.id))
+        table.add_row(
+            "Location",
+            ev.location.name if ev.location else "[dim]N/A[/dim]",
+            "Sublocation",
+            ev.sublocation or "[dim]\u2014[/dim]",
         )
+        table.add_row(
+            "Created", f"[dim]{ev.created_at}[/dim]",
+            "Updated", f"[dim]{ev.updated_at}[/dim]",
+        )
+        self.query_one("#event-meta", Static).update(str(table))
 
         desc = ev.description or "[dim]No description[/dim]"
         self.query_one("#event-desc", Static).update(
-            f"{RichRule('Description', style='cyan', align='left')}\n{desc}"
+            f"{RichRule('Description', style='cyan', align='left')}\n{desc}",
         )
 
         occurrences: list[object] = getattr(ev, "occurrences", [])
@@ -102,11 +112,11 @@ class EventDetailScreen(Screen[object]):
                 end = getattr(occ, "end_date", "")
                 start_t = getattr(occ, "start_time", "") or ""
                 end_t = getattr(occ, "end_time", "") or ""
-                detail = f"  📅 {start}"
+                detail = f"  \U0001f4c5 {start}"
                 if start_t:
                     detail += f" {start_t}"
                 if end:
-                    detail += f"  →  {end}"
+                    detail += f"  \u2192  {end}"
                     if end_t:
                         detail += f" {end_t}"
                 lines.append(detail)
@@ -130,7 +140,7 @@ class EventDetailScreen(Screen[object]):
         if urls:
             lines = [str(RichRule("URLs", style="cyan", align="left"))]
             for u in urls:
-                lines.append(f"  🔗 {getattr(u, 'url', '')}")
+                lines.append(f"  \U0001f517 {getattr(u, 'url', '')}")
             self.query_one("#event-urls", Static).update("\n".join(lines))
         else:
             self.query_one("#event-urls", Static).update(
@@ -147,7 +157,7 @@ class EventDetailScreen(Screen[object]):
                 src_id = getattr(es, "source_id", "")
                 trust = getattr(es, "trust_score", "")
                 primary = (
-                    " [green]★ primary[/green]"
+                    " [green]\u2605 primary[/green]"
                     if getattr(es, "is_primary", False)
                     else ""
                 )
