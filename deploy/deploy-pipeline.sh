@@ -49,7 +49,7 @@ gcloud run jobs update "${PIPELINE_JOB}" \
   --image="${IMAGE}" \
   --region="${REGION}" \
   --project="${PROJECT_ID}" \
-  --update-env-vars="REDIS_URL=${REDIS_URL}"
+  --update-env-vars="REDIS_URL=${REDIS_URL},USE_CELERY=true"
 
 echo ""
 echo "=== Pipeline deployment complete ==="

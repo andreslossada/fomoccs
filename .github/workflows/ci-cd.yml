@@ -188,7 +188,7 @@ jobs:
           IMAGE="us-central1-docker.pkg.dev/fomoccs/fomoccs-docker/backend:${GITHUB_SHA::7}"
           gcloud run deploy fomoccs-backend-worker \
             --image="$IMAGE" --region=us-central1 --project=fomoccs \
-            --command=celery --args="-A,api.celery_app,worker,--loglevel=info,--concurrency=4" \
+            --command=celery --args="-A,api.celery_app,worker,--loglevel=info,--concurrency=4,-Q,default\,geocoding" \
             --set-env-vars="REDIS_URL=${{ secrets.REDIS_URL }}" \
             --no-cpu-throttling --min-instances=1
 
@@ -221,7 +221,7 @@ jobs:
           IMAGE="us-central1-docker.pkg.dev/fomoccs/fomoccs-docker/pipeline:${GITHUB_SHA::7}"
           gcloud run jobs update fomoccs-pipeline \
             --image="$IMAGE" --region=us-central1 --project=fomoccs \
-            --update-env-vars="REDIS_URL=${{ secrets.REDIS_URL }}"
+            --update-env-vars="REDIS_URL=${{ secrets.REDIS_URL }},USE_CELERY=true"
 
   # === Deploy Frontend ===
   deploy-frontend:

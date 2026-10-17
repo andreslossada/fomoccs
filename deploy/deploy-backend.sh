@@ -69,7 +69,7 @@ if [[ -n "${REDIS_URL:-}" ]]; then
     --region="${REGION}" \
     --project="${PROJECT_ID}" \
     --command="celery" \
-    --args="-A,api.celery_app,worker,--loglevel=info,--concurrency=4" \
+    --args="-A,api.celery_app,worker,--loglevel=info,--concurrency=4,-Q,default\,geocoding" \
     --set-env-vars="REDIS_URL=${REDIS_URL}" \
     --no-cpu-throttling \
     --min-instances=1
