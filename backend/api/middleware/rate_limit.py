@@ -28,7 +28,9 @@ async def _rate_limit(
     ip = (
         forwarded.split(",")[0].strip()
         if forwarded
-        else request.client.host if request.client else "unknown"
+        else request.client.host
+        if request.client
+        else "unknown"
     )
 
     key = f"rl:{request.url.path}:{ip}"

@@ -64,11 +64,19 @@ async def feed_events(
 
         out.append(
             {
+                # The frontend keys events by id: it merges a recurring event's
+                # per-day occurrences into one record and needs a stable
+                # identity to dedupe against. Without it every occurrence
+                # renders as its own marker.
+                "id": ev.id,
                 "name": ev.name,
                 "short_name": ev.short_name,
                 "description": ev.description,
                 "emoji": ev.emoji,
                 "location": loc.name if loc else None,
+                # Same reason as event id: the venue identity, not the
+                # name/coords pair, is what groups events under a marker.
+                "place_id": ev.location_id,
                 "sublocation": ev.sublocation,
                 "lat": loc.lat if loc else None,
                 "lng": loc.lng if loc else None,
@@ -98,6 +106,10 @@ async def feed_locations(
 
     return [
         {
+            # Stable identity for the venue. The frontend prefers it over the
+            # name/coords pair when grouping events under a marker, so two
+            # events at a renamed venue keep resolving to the same place.
+            "id": loc.id,
             "name": loc.name,
             "short_name": loc.short_name,
             "very_short_name": loc.very_short_name,
@@ -106,6 +118,7 @@ async def feed_locations(
             "emoji": loc.emoji,
             "address": loc.address,
             "description": loc.description,
+            "website_url": loc.website_url,
             "tags": [t.name for t in loc.tags],
         }
         for loc in locations

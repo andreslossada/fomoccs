@@ -6,7 +6,12 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import selectinload
 
 from api.celery_app import celery
@@ -41,7 +46,8 @@ def _make_session() -> async_sessionmaker[AsyncSession]:
     Reusing one engine keeps the connection count bounded.
     """
     try:
-        from api.database import AsyncSessionLocal, engine as shared_engine
+        from api.database import AsyncSessionLocal
+        from api.database import engine as shared_engine
 
         # A sessionmaker/engine is only safe to reuse if it was bound to
         # the loop we are running on now.
@@ -64,7 +70,7 @@ def _make_session() -> async_sessionmaker[AsyncSession]:
 
 # Engines created for one-off loops. Tracked so ``_process_crawl_job`` can
 # dispose them when it finishes, instead of leaking a pool per job.
-_TRANSIENT_ENGINES: set = set()
+_TRANSIENT_ENGINES: set[AsyncEngine] = set()
 
 
 async def _dispose_transient_engines() -> None:

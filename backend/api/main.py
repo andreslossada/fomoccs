@@ -52,21 +52,22 @@ def health() -> dict[str, str]:
 async def trigger_process_crawl_job(
     job_id: int,
     _api_key: None = Depends(verify_api_key),
-):
+) -> dict[str, object]:
     import json as json_mod
 
     from sqlalchemy import exists, select, update
 
     from api.database import AsyncSessionLocal
+    from api.models.base import CrawlResultStatus
     from api.models.crawl import (
         CrawlContent,
         CrawlResult,
-        CrawlResultStatus,
         ExtractedEvent,
     )
 
     # Step 1: Parse crawl_contents JSON and create ExtractedEvent records
     created = 0
+    skipped = 0
     async with AsyncSessionLocal() as session:
         stmt = (
             select(
@@ -104,22 +105,53 @@ async def trigger_process_crawl_job(
                 for evt in events:
                     raw_loc = evt.get("location", evt.get("location_name", "")) or ""
                     if isinstance(raw_loc, dict):
-                        raw_loc = raw_loc.get("venue_name", raw_loc.get("name", "")) or ""
-                    ee = ExtractedEvent(
-                        crawl_result_id=cc.crawl_result_id,
-                        name=str(evt.get("name", ""))[:500],
-                        location_name=str(raw_loc)[:255],
-                        sublocation=str(evt.get("sublocation", "") or "")[:255],
-                        description=str(evt.get("description", "") or ""),
-                        url=str(evt.get("url", "") or "")[:2000],
-                        occurrences=json_mod.dumps(evt.get("occurrences", [])),
-                        tags=json_mod.dumps(
-                            evt.get("tags", evt.get("hashtags", [])) or []
-                        ),
-                        emoji=str(evt.get("emoji", "") or ""),
-                    )
-                    session.add(ee)
-                    created += 1
+                        raw_loc = (
+                            raw_loc.get("venue_name", raw_loc.get("name", "")) or ""
+                        )
+
+                    # LLM output is untrusted: every text field must be
+                    # clipped to its column width in *characters*.
+                    # ``emoji`` is VARCHAR(10) and multi-codepoint emoji
+                    # (ZWJ sequences, flags, skin tones) exceed that.
+                    emoji_raw = str(evt.get("emoji", "") or "").strip()[:10].strip()
+
+                    # Each event gets its own SAVEPOINT. Without it, one
+                    # row that violates a constraint poisons the session
+                    # and every later event in the batch fails with
+                    # PendingRollbackError — which is how a single bad
+                    # emoji used to discard a whole source's events.
+                    try:
+                        async with session.begin_nested():
+                            session.add(
+                                ExtractedEvent(
+                                    crawl_result_id=cc.crawl_result_id,
+                                    name=str(evt.get("name", "") or "")[:500],
+                                    location_name=str(raw_loc or "")[:255],
+                                    sublocation=str(evt.get("sublocation", "") or "")[
+                                        :255
+                                    ],
+                                    description=str(evt.get("description", "") or "")[
+                                        :5000
+                                    ],
+                                    url=str(evt.get("url", "") or "")[:2000],
+                                    occurrences=json_mod.dumps(
+                                        evt.get("occurrences", [])
+                                    ),
+                                    tags=json_mod.dumps(
+                                        evt.get("tags", evt.get("hashtags", [])) or []
+                                    )[:2000],
+                                    emoji=emoji_raw,
+                                )
+                            )
+                            await session.flush()
+                        created += 1
+                    except Exception as e:
+                        skipped += 1
+                        print(
+                            f"Skipped malformed event in result "
+                            f"{cc.crawl_result_id}: {type(e).__name__}: "
+                            f"{str(e)[:120]}"
+                        )
                 # Mark crawl_result as having extracted events ready
                 stmt_update = (
                     update(CrawlResult)
@@ -130,13 +162,22 @@ async def trigger_process_crawl_job(
             except Exception as e:
                 mid = cc.crawl_result_id
                 print(f"Error parsing extracted content for result {mid}: {e}")
+                # Keep going: a malformed payload for one URL must not
+                # abort the rest of the job.
+                await session.rollback()
 
         await session.commit()
 
     # Step 2: Process the extracted events
     from api.tasks.processing import _process_crawl_job
+
     await _process_crawl_job(job_id)
-    return {"status": "ok", "job_id": job_id, "extracted_events_created": created}
+    return {
+        "status": "ok",
+        "job_id": job_id,
+        "extracted_events_created": created,
+        "extracted_events_skipped": skipped,
+    }
 
 
 # SQLAdmin mounted on /admin — must come before the catch-all static mount

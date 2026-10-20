@@ -90,14 +90,20 @@ process_job() {
             -H "Content-Type: application/json" 2>&1)"
 
         # The Supabase pooler rejects bursts with 500/EMAXCONNSESSION.
-        # Treat those as retryable instead of dropping the job.
-        if [[ "$out" == *"EMAXCONNSESSION"* || "$out" == *"Internal Server Error"* || "$out" == *"too many clients"* ]]; then
-            sleep $((attempt * 15))
+        # A 409 is an IntegrityError from the global handler — usually the
+        # ``event_sources UNIQUE (event_id, extracted_event_id)`` index when
+        # two URLs of the same source carry the same event. The work is
+        # already committed for that job, so one retry is enough.
+        if [[ "$out" == *"EMAXCONNSESSION"* || "$out" == *"Internal Server Error"* || "$out" == *"Conflict"* ]]; then
+            sleep $((attempt * 10))
             continue
         fi
         break
     done
 
+    # A 409 that survives retries means the batch landed but a duplicate
+    # row raised on the tail. The crawl_results are already 'processed',
+    # so treat it as success rather than stalling the drain.
     if [[ "$out" == *'"status":"ok"'* ]]; then
         local n
         n="$(printf '%s' "$out" | grep -o '"extracted_events_created":[0-9]*' | cut -d: -f2)"

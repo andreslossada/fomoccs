@@ -7,15 +7,17 @@ from api.config import get_settings
 
 settings = get_settings()
 
-# Supabase's session-mode pooler caps clients per tenant (typically 15).
-# Keep our own pool small so concurrent requests and Celery workers share
-# that budget instead of each exhausting it. pool_pre_ping evicts stale
-# connections the pooler may have reaped while idle.
+# Supabase's session-mode pooler caps clients per tenant (typically 15) and
+# two more may be used by the pipeline/Celery processes. Our own pool has to
+# stay well under that ceiling or long-running merge passes starve the
+# health check and every other request (QueuePool timeout -> HTTP 500).
+# pool_pre_ping evicts connections the pooler reaped while idle.
 engine = create_async_engine(
     settings.database_url,
     pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=5,
+    pool_size=3,
+    max_overflow=2,
+    pool_timeout=120,
     pool_recycle=280,
     connect_args={"ssl": "prefer"} if "supabase" in settings.db_host else {},
 )
