@@ -59,8 +59,9 @@ class TagRulesScreen(BaseListScreen):
 
     def _render_row(self, item: dict[str, Any]) -> list[str]:
         deleted = item.get("deleted")
-        status = format_status("deleted" if deleted else "active",
-                              label="Deleted" if deleted else "Active")
+        status = format_status(
+            "deleted" if deleted else "active", label="Deleted" if deleted else "Active"
+        )
         return [
             str(item.get("id", "")),
             str(item.get("type", "")),
@@ -111,9 +112,7 @@ class TagRulesScreen(BaseListScreen):
 
     def action_edit_rule(self) -> None:
         table = self.query_one(f"#{self._table_id}", DataTable)
-        row_key = (
-            table.cursor_coordinate.row if table.cursor_coordinate else None
-        )
+        row_key = table.cursor_coordinate.row if table.cursor_coordinate else None
         if not self._data or row_key is None or row_key >= len(self._data):
             return
         rule = self._data[row_key]
@@ -143,9 +142,7 @@ class TagRulesScreen(BaseListScreen):
             if replacement is not None:
                 values["replacement"] = replacement
             await session.execute(
-                update(TagRule)
-                .where(TagRule.id == rule["id"])
-                .values(**values)
+                update(TagRule).where(TagRule.id == rule["id"]).values(**values)
             )
             await session.commit()
         finally:
@@ -155,18 +152,14 @@ class TagRulesScreen(BaseListScreen):
 
     def action_delete_rule(self) -> None:
         table = self.query_one(f"#{self._table_id}", DataTable)
-        row_key = (
-            table.cursor_coordinate.row if table.cursor_coordinate else None
-        )
+        row_key = table.cursor_coordinate.row if table.cursor_coordinate else None
         if not self._data or row_key is None or row_key >= len(self._data):
             return
         rule = self._data[row_key]
         if rule["deleted"]:
             return
         if isinstance(rule["pattern"], str):
-            self.run_worker(
-                self._do_delete_rule(int(rule["id"]), rule["pattern"])
-            )
+            self.run_worker(self._do_delete_rule(int(rule["id"]), rule["pattern"]))
 
     async def _do_delete_rule(self, rule_id: int, pattern: str) -> None:
         confirmed = await self.app.push_screen_wait(

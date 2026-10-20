@@ -20,9 +20,7 @@ def sample_location_no_coords(db_session: AsyncSession) -> Location:
 
 @pytest.fixture
 def sample_location_with_coords(db_session: AsyncSession) -> Location:
-    loc = Location(
-        name="Known Venue", address="Calle Real 123", lat=10.48, lng=-66.90
-    )
+    loc = Location(name="Known Venue", address="Calle Real 123", lat=10.48, lng=-66.90)
     db_session.add(loc)
     return loc
 

@@ -45,9 +45,8 @@ def handle_nav_press(button_id: str) -> str | None:
 def active_tab(screen: object, tab_key: str) -> None:
     """Mark a nav tab button as active. Call from on_mount or after screen switch."""
     try:
-
         if hasattr(screen, "query_one"):
-            btn = screen.query_one(f"#nav-{tab_key}", Button)  # type: ignore[union-attr]
+            btn = screen.query_one(f"#nav-{tab_key}", Button)
             btn.add_class("-active")
     except Exception:
         pass

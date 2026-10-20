@@ -94,19 +94,18 @@ class PipelineRunScreen(Screen[None]):
             t0 = time.time()
 
             _step_progress: dict[str, int] = {
-                "booting": 5, "scanning": 15, "crawling": 50,
-                "extracting": 80, "saving": 95,
+                "booting": 5,
+                "scanning": 15,
+                "crawling": 50,
+                "extracting": 80,
+                "saving": 95,
             }
 
             while proc.stdout is not None:
                 try:
-                    raw = await asyncio.wait_for(
-                        proc.stdout.readline(), timeout=600
-                    )
+                    raw = await asyncio.wait_for(proc.stdout.readline(), timeout=600)
                 except TimeoutError:
-                    status_bar.update(
-                        "[red]Timed out after 10 min — killing...[/red]"
-                    )
+                    status_bar.update("[red]Timed out after 10 min — killing...[/red]")
                     proc.kill()
                     await proc.wait()
                     break
@@ -116,14 +115,17 @@ class PipelineRunScreen(Screen[None]):
                 text = raw.decode("utf-8", errors="replace").rstrip()
 
                 # Skip truly noisy lines
-                if any(skip in text for skip in [
-                    "RequestsDependencyWarning",
-                    "VIRTUAL_ENV",
-                    "deprecated",
-                    "net::ERR_",
-                    "[ERROR]...",
-                    "Invalid URL:",
-                ]):
+                if any(
+                    skip in text
+                    for skip in [
+                        "RequestsDependencyWarning",
+                        "VIRTUAL_ENV",
+                        "deprecated",
+                        "net::ERR_",
+                        "[ERROR]...",
+                        "Invalid URL:",
+                    ]
+                ):
                     continue
 
                 # Detect step transitions
@@ -181,18 +183,43 @@ class PipelineRunScreen(Screen[None]):
                     event_count = max(event_count, int(m.group(1)))
 
                 # Show meaningful lines
-                if current_step == "crawling" and any(kw in text for kw in [
-                    "Crawling", "[FETCH]", "[BROWSER]", "JSON API", "crawled",
-                    "source_complete",
-                ]):
+                if current_step == "crawling" and any(
+                    kw in text
+                    for kw in [
+                        "Crawling",
+                        "[FETCH]",
+                        "[BROWSER]",
+                        "JSON API",
+                        "crawled",
+                        "source_complete",
+                    ]
+                ):
                     pass  # too noisy, skip raw crawl lines
-                elif any(kw in text for kw in [
-                    "STEP 0", "STEP 1", "STEP 2", "STEP 3", "STEP 4", "STEP 5",
-                    "Finding Sources", "Crawling Sources", "Extracting Events",
-                    "Crawl job ID:", "PIPELINE", "Summary:", "events extracted",
-                    "total events:", "API calls", "processed", "prepped",
-                    "extraction error", "timeout", "rate",
-                ]):
+                elif any(
+                    kw in text
+                    for kw in [
+                        "STEP 0",
+                        "STEP 1",
+                        "STEP 2",
+                        "STEP 3",
+                        "STEP 4",
+                        "STEP 5",
+                        "Finding Sources",
+                        "Crawling Sources",
+                        "Extracting Events",
+                        "Crawl job ID:",
+                        "PIPELINE",
+                        "Summary:",
+                        "events extracted",
+                        "total events:",
+                        "API calls",
+                        "processed",
+                        "prepped",
+                        "extraction error",
+                        "timeout",
+                        "rate",
+                    ]
+                ):
                     lines.append(text)
                 elif len(text.strip()) > 0 and (
                     "[" not in text or current_step == "extracting"
@@ -213,16 +240,13 @@ class PipelineRunScreen(Screen[None]):
                     f"{event_count} events extracted[/green]"
                 )
                 self.app.notify(
-                    f"Crawl of '{self._source_name}' finished "
-                    f"({event_count} events)",
+                    f"Crawl of '{self._source_name}' finished ({event_count} events)",
                     severity="information",
                     timeout=8,
                 )
             else:
                 bar.update(progress=0)
-                status_bar.update(
-                    f"[red]Failed (exit {proc.returncode})[/red]"
-                )
+                status_bar.update(f"[red]Failed (exit {proc.returncode})[/red]")
                 if not lines:
                     output.update(
                         "[red]Pipeline produced no output. "

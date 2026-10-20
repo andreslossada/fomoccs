@@ -11,9 +11,7 @@ from textual.widgets import Button, Input, Static
 class InputDialog(ModalScreen[str | None]):
     """A modal dialog with a text input. Returns the entered value or None on cancel."""
 
-    def __init__(
-        self, title: str, *, initial: str = "", placeholder: str = ""
-    ) -> None:
+    def __init__(self, title: str, *, initial: str = "", placeholder: str = "") -> None:
         super().__init__()
         self._title = title
         self._initial = initial

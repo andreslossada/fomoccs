@@ -82,9 +82,7 @@ class BaseListScreen(Screen[object]):
         yield Label(f"[bold]\u25b8 {self._title}[/bold]", id="breadcrumb")
         with Horizontal(id="filters"):
             if self._has_search:
-                yield Input(
-                    placeholder=self._search_placeholder, id="search-input"
-                )
+                yield Input(placeholder=self._search_placeholder, id="search-input")
             yield from self._extra_filters()
             yield Label("", id="counter")
         yield DataTable(id=self._table_id)
@@ -194,7 +192,7 @@ class BaseListScreen(Screen[object]):
         self.run_worker(self._load_data())
 
     def action_show_help(self) -> None:
-        self.app.push_screen(HelpModal(self._title, list(self.BINDINGS)))
+        self.app.push_screen(HelpModal(self._title, self.BINDINGS))
 
 
 class BaseDetailScreen(Screen[object]):
@@ -232,15 +230,15 @@ class BaseDetailScreen(Screen[object]):
             if entity is None:
                 self.notify(f"{self._title} not found", severity="error")
                 return
-            self._render(entity)
+            self._render_detail(entity)
         finally:
             await session.close()
 
     async def _load_entity(self, session: AsyncSession) -> Any:
         raise NotImplementedError
 
-    def _render(self, entity: Any) -> None:
+    def _render_detail(self, entity: Any) -> None:
         raise NotImplementedError
 
     def action_show_help(self) -> None:
-        self.app.push_screen(HelpModal(self._title, list(self.BINDINGS)))
+        self.app.push_screen(HelpModal(self._title, self.BINDINGS))

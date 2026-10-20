@@ -10,15 +10,16 @@ import asyncio
 import sys
 
 from sqlalchemy import text
+from sqlalchemy.engine import CursorResult
 
 from api.database import AsyncSessionLocal
 
 # canonical_id -> list of duplicate_ids
 MERGE_MAP: dict[int, list[int]] = {
-    8: [221, 53, 156, 154, 85, 101, 283, 55],   # Teatro Teresa Carreno
-    4: [86],            # Centro Cultural Chacao
-    169: [173],         # Centro Cultural de Arte Moderno
-    206: [205],         # Hotel Eurobuilding
+    8: [221, 53, 156, 154, 85, 101, 283, 55],  # Teatro Teresa Carreno
+    4: [86],  # Centro Cultural Chacao
+    169: [173],  # Centro Cultural de Arte Moderno
+    206: [205],  # Hotel Eurobuilding
 }
 
 
@@ -58,14 +59,18 @@ async def merge_locations(dry_run: bool = True) -> int:
 
                 if not dry_run:
                     # Move events
-                    result = await session.execute(
+                    update_events = await session.execute(
                         text(
                             "UPDATE events SET location_id = :canonical "
                             "WHERE location_id = :dup AND deleted_at IS NULL"
                         ),
                         {"canonical": canonical_id, "dup": dup_id},
                     )
-                    moved = result.rowcount
+                    moved = (
+                        update_events.rowcount
+                        if isinstance(update_events, CursorResult)
+                        else 0
+                    )
 
                     # Move alternate_names
                     await session.execute(
@@ -91,10 +96,7 @@ async def merge_locations(dry_run: bool = True) -> int:
 
                     # Soft-delete duplicate
                     await session.execute(
-                        text(
-                            "UPDATE locations SET deleted_at = NOW() "
-                            "WHERE id = :dup"
-                        ),
+                        text("UPDATE locations SET deleted_at = NOW() WHERE id = :dup"),
                         {"dup": dup_id},
                     )
 
@@ -145,7 +147,7 @@ async def merge_locations(dry_run: bool = True) -> int:
                 await session.execute(
                     text(f"""
                         UPDATE locations SET deleted_at = NOW()
-                        WHERE id IN ({','.join(jids)})
+                        WHERE id IN ({",".join(jids)})
                     """)
                 )
                 print(f"  Deleted {len(junk)} malformed locations.")

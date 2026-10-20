@@ -26,9 +26,7 @@ class EventDetailScreen(Screen[object]):
     ]
 
     def action_show_help(self) -> None:
-        self.app.push_screen(
-            HelpModal("Event Detail", self.BINDINGS)
-        )
+        self.app.push_screen(HelpModal("Event Detail", self.BINDINGS))
 
     def __init__(self, event_id: int) -> None:
         super().__init__()
@@ -36,9 +34,7 @@ class EventDetailScreen(Screen[object]):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
-        yield Label(
-            "[bold reverse #00bcd4]  Event Detail  [/]", id="screen-title"
-        )
+        yield Label("[bold reverse #00bcd4]  Event Detail  [/]", id="screen-title")
         yield Label("[bold]\u25b8 Event Detail[/bold]", id="breadcrumb")
         with Vertical(id="event-detail"):
             yield LoadingIndicator("Loading event...", id="detail-spinner")
@@ -92,8 +88,10 @@ class EventDetailScreen(Screen[object]):
             ev.sublocation or "[dim]\u2014[/dim]",
         )
         table.add_row(
-            "Created", f"[dim]{ev.created_at}[/dim]",
-            "Updated", f"[dim]{ev.updated_at}[/dim]",
+            "Created",
+            f"[dim]{ev.created_at}[/dim]",
+            "Updated",
+            f"[dim]{ev.updated_at}[/dim]",
         )
         self.query_one("#event-meta", Static).update(str(table))
 
@@ -144,15 +142,12 @@ class EventDetailScreen(Screen[object]):
             self.query_one("#event-urls", Static).update("\n".join(lines))
         else:
             self.query_one("#event-urls", Static).update(
-                f"{RichRule('URLs', style='cyan', align='left')}\n"
-                "  [dim]No URLs[/dim]"
+                f"{RichRule('URLs', style='cyan', align='left')}\n  [dim]No URLs[/dim]"
             )
 
         sources: list[object] = getattr(ev, "sources", [])
         if sources:
-            lines = [
-                str(RichRule("Source Lineage", style="cyan", align="left"))
-            ]
+            lines = [str(RichRule("Source Lineage", style="cyan", align="left"))]
             for es in sources:
                 src_id = getattr(es, "source_id", "")
                 trust = getattr(es, "trust_score", "")

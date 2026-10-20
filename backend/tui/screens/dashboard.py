@@ -53,7 +53,7 @@ def _sparkline(values: list[float] | list[int], color: str = "green") -> str:
         _plt.axes_color("none")
         _plt.ticks_color("none")
         _plt.plotsize(100, 22)
-        return _plt.build().strip()
+        return str(_plt.build()).strip()
     except Exception:
         return ""
 
@@ -143,13 +143,9 @@ class DashboardScreen(Screen[object]):
                 if job.started_at is not None:
                     delta = int((now - job.started_at).total_seconds())
                     elapsed = f" ({delta}s)"
-                lines.append(
-                    f"  {format_status('running')} #{job.id}{elapsed}"
-                )
+                lines.append(f"  {format_status('running')} #{job.id}{elapsed}")
         if stuck:
-            lines.append(
-                f"\n[bold dim]\u26a0  Stuck (>2h): {stuck}[/bold dim]"
-            )
+            lines.append(f"\n[bold dim]\u26a0  Stuck (>2h): {stuck}[/bold dim]")
         self.query_one("#crawls", Static).update("\n".join(lines))
 
     async def _update_events(self, session: AsyncSession) -> None:
@@ -238,9 +234,7 @@ class DashboardScreen(Screen[object]):
                     started = str(local)[:16]
                 else:
                     started = "?"
-                lines.append(
-                    f"{status} #{job.id} [dim]{started}[/dim]{extra}"
-                )
+                lines.append(f"{status} #{job.id} [dim]{started}[/dim]{extra}")
         self.query_one("#last-crawls", Static).update("\n".join(lines))
 
     def action_refresh(self) -> None:

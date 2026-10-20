@@ -75,8 +75,10 @@ class EventsScreen(BaseListScreen):
 
     def _row_style(self, item: dict[str, Any]) -> str | None:
         color_map = {
-            "active": "#66bb6a", "archived": "#888888",
-            "draft": "#ffd54f", "cancelled": "#ef5350",
+            "active": "#66bb6a",
+            "archived": "#888888",
+            "draft": "#ffd54f",
+            "cancelled": "#ef5350",
         }
         color = color_map.get(str(item.get("status", "")), "")
         return f"color: {color}" if color else None
@@ -84,9 +86,7 @@ class EventsScreen(BaseListScreen):
     # ── event actions ────────────────────────────────────────────────
     def action_view_event(self) -> None:
         table = self.query_one(f"#{self._table_id}", DataTable)
-        row_key = (
-            table.cursor_coordinate.row if table.cursor_coordinate else None
-        )
+        row_key = table.cursor_coordinate.row if table.cursor_coordinate else None
         if self._data and row_key is not None and row_key < len(self._data):
             event_id = self._data[row_key]["id"]
             if isinstance(event_id, int):
@@ -94,36 +94,24 @@ class EventsScreen(BaseListScreen):
 
     def action_toggle_archive(self) -> None:
         table = self.query_one(f"#{self._table_id}", DataTable)
-        row_key = (
-            table.cursor_coordinate.row if table.cursor_coordinate else None
-        )
+        row_key = table.cursor_coordinate.row if table.cursor_coordinate else None
         if self._data and row_key is not None and row_key < len(self._data):
             ev = self._data[row_key]
-            new_status = (
-                "active" if ev["status"] == "archived" else "archived"
-            )
-            self.run_worker(
-                self._do_toggle_archive(int(ev["id"]), new_status)
-            )
+            new_status = "active" if ev["status"] == "archived" else "archived"
+            self.run_worker(self._do_toggle_archive(int(ev["id"]), new_status))
 
-    async def _do_toggle_archive(
-        self, event_id: int, new_status: str
-    ) -> None:
+    async def _do_toggle_archive(self, event_id: int, new_status: str) -> None:
         from tui.db import get_session
 
         session = await get_session()
         try:
             await session.execute(
-                update(Event)
-                .where(Event.id == event_id)
-                .values(status=new_status)
+                update(Event).where(Event.id == event_id).values(status=new_status)
             )
             await session.commit()
         finally:
             await session.close()
-        self.app.notify(
-            f"Event {new_status}", severity="information"
-        )
+        self.app.notify(f"Event {new_status}", severity="information")
         await self._load_data()
 
     def action_cycle_status(self) -> None:

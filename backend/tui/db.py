@@ -269,15 +269,12 @@ async def list_sources(
         .scalar_subquery()
     )
 
-    query = (
-        select(
-            Source,
-            func.coalesce(url_subq, "").label("website"),
-            config_subq.label("last_crawled_at"),
-            func.coalesce(event_count_subq, 0).label("event_count"),
-        )
-        .where(Source.deleted_at.is_(None))
-    )
+    query = select(
+        Source,
+        func.coalesce(url_subq, "").label("website"),
+        config_subq.label("last_crawled_at"),
+        func.coalesce(event_count_subq, 0).label("event_count"),
+    ).where(Source.deleted_at.is_(None))
     if active_only:
         query = query.where(Source.disabled.is_(False))
     if tier is not None:
@@ -573,9 +570,7 @@ async def recent_crawl_results(
 
 async def count_extracted_results(session: AsyncSession) -> int:
     result = await session.scalar(
-        select(func.count(CrawlResult.id)).where(
-            CrawlResult.status == "extracted"
-        )
+        select(func.count(CrawlResult.id)).where(CrawlResult.status == "extracted")
     )
     return result or 0
 

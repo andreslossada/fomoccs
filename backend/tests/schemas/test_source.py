@@ -17,6 +17,7 @@ from api.schemas.source import (
     SourceUrlResponse,
 )
 from tests.schemas.helpers import (
+    http_url,
     make_crawl_config_obj,
     make_source_obj,
     make_source_url_obj,
@@ -28,7 +29,7 @@ from tests.schemas.helpers import (
 
 
 def test_source_url_create_valid():
-    url = SourceUrlCreate(url="https://example.com")
+    url = SourceUrlCreate(url=http_url("https://example.com"))
     assert str(url.url) == "https://example.com/"
     assert url.js_code is None
     assert url.sort_order == 0
@@ -36,7 +37,7 @@ def test_source_url_create_valid():
 
 def test_source_url_create_max_length():
     with pytest.raises(ValidationError):
-        SourceUrlCreate(url="x" * 2001)
+        SourceUrlCreate(url=http_url("https://example.com/" + "x" * 2001))
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +117,7 @@ def test_source_create_valid_full():
         type=SourceType.api,
         trust_level=Decimal("0.8"),
         disabled=True,
-        urls=[SourceUrlCreate(url="https://example.com")],
+        urls=[SourceUrlCreate(url=http_url("https://example.com"))],
         crawl_config=CrawlConfigCreate(
             crawl_frequency=12, crawl_mode=CrawlMode.json_api
         ),

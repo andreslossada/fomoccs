@@ -88,7 +88,10 @@ def seed(dry_run: bool = True) -> None:
         row = cur.fetchone()
         if row is None:
             cur.execute(
-                "SELECT id FROM locations WHERE LOWER(name) = LOWER(%s) AND deleted_at IS NULL",
+                """
+                SELECT id FROM locations
+                WHERE LOWER(name) = LOWER(%s) AND deleted_at IS NULL
+                """,
                 (canonical,),
             )
             row = cur.fetchone()
@@ -110,7 +113,11 @@ def seed(dry_run: bool = True) -> None:
 
             if not dry_run:
                 cur.execute(
-                    "INSERT INTO location_alternate_names (location_id, alternate_name) VALUES (%s, %s)",
+                    """
+                    INSERT INTO location_alternate_names
+                        (location_id, alternate_name)
+                    VALUES (%s, %s)
+                    """,
                     (location_id, alias),
                 )
             inserted += 1

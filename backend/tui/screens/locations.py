@@ -82,9 +82,7 @@ class LocationsScreen(BaseListScreen):
     # ── location actions ─────────────────────────────────────────────
     def action_view_location(self) -> None:
         table = self.query_one(f"#{self._table_id}", DataTable)
-        row_key = (
-            table.cursor_coordinate.row if table.cursor_coordinate else None
-        )
+        row_key = table.cursor_coordinate.row if table.cursor_coordinate else None
         if self._data and row_key is not None and row_key < len(self._data):
             loc_id = self._data[row_key]["id"]
             if isinstance(loc_id, int):
@@ -93,9 +91,7 @@ class LocationsScreen(BaseListScreen):
     def action_cycle_type(self) -> None:
         types = ["", "venue", "area", "meeting_point"]
         current_idx = (
-            types.index(self._type_filter)
-            if self._type_filter in types
-            else 0
+            types.index(self._type_filter) if self._type_filter in types else 0
         )
         next_idx = (current_idx + 1) % len(types)
         self._type_filter = types[next_idx]

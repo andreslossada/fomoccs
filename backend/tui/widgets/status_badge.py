@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from textual.widgets import Static
 
 _STATUS_COLORS: dict[str, str] = {
@@ -99,12 +101,12 @@ class StatusBadge(Static):
         status: str,
         label: str | None = None,
         icon: bool = True,
-        **kwargs: object,
+        **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        self._render(status, label, icon)
+        self._apply(status, label, icon)
 
-    def _render(self, status: str, label: str | None, icon: bool) -> None:
+    def _apply(self, status: str, label: str | None, icon: bool) -> None:
         normalized = status.lower().strip()
         color = _STATUS_COLORS.get(normalized, "")
         icon_str = f"{_STATUS_ICONS.get(normalized, ' ')} " if icon else ""
@@ -123,7 +125,7 @@ class StatusBadge(Static):
         for cls in self._BADGE_CLASSES.values():
             self.set_class(False, cls)
         self.set_class(False, "badge-default")
-        self._render(status, label, icon)
+        self._apply(status, label, icon)
 
 
 def status_color(status: str) -> str:

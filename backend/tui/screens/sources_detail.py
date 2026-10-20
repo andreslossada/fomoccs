@@ -26,9 +26,7 @@ class SourceDetailScreen(Screen[object]):
     ]
 
     def action_show_help(self) -> None:
-        self.app.push_screen(
-            HelpModal("Source Detail", self.BINDINGS)
-        )
+        self.app.push_screen(HelpModal("Source Detail", self.BINDINGS))
 
     def __init__(self, source_id: int) -> None:
         super().__init__()
@@ -36,9 +34,7 @@ class SourceDetailScreen(Screen[object]):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
-        yield Label(
-            "[bold reverse #00bcd4]  Source Detail  [/]", id="screen-title"
-        )
+        yield Label("[bold reverse #00bcd4]  Source Detail  [/]", id="screen-title")
         yield Label("[bold]\u25b8 Source Detail[/bold]", id="breadcrumb")
         with Vertical(id="source-detail"):
             yield LoadingIndicator("Loading source...", id="detail-spinner")
@@ -87,12 +83,16 @@ class SourceDetailScreen(Screen[object]):
         table.add_row("Type", str(s.type), "Tier", f"T{s.tier}")
         table.add_row("Status", status, "Trust Level", str(s.trust_level or "\u2014"))
         table.add_row(
-            "Rate Limit", f"{s.min_request_interval_seconds or '\u2014'}s",
-            "", "",
+            "Rate Limit",
+            f"{s.min_request_interval_seconds or '\u2014'}s",
+            "",
+            "",
         )
         table.add_row(
-            "Created", f"[dim]{s.created_at}[/dim]",
-            "Updated", f"[dim]{s.updated_at}[/dim]",
+            "Created",
+            f"[dim]{s.created_at}[/dim]",
+            "Updated",
+            f"[dim]{s.updated_at}[/dim]",
         )
         self.query_one("#source-meta", Static).update(str(table))
 
@@ -131,14 +131,18 @@ class SourceDetailScreen(Screen[object]):
                 ig_cfg = getattr(config, "json_api_config", None) or {}
                 table.add_row("IG Username", str(ig_cfg.get("username", "\u2014")))
                 table.add_row("IG Max Posts", str(ig_cfg.get("max_posts", 20)))
-            table.add_row("Frequency", f"{getattr(config, 'crawl_frequency', '-')} days")
+            table.add_row(
+                "Frequency", f"{getattr(config, 'crawl_frequency', '-')} days"
+            )
             table.add_row("Max Pages", str(getattr(config, "max_pages", "-")))
             table.add_row("Selector", str(getattr(config, "selector") or "\u2014"))
             table.add_row("Keywords", str(getattr(config, "keywords") or "\u2014"))
             table.add_row("Text Mode", str(getattr(config, "text_mode", False)))
             table.add_row("Stealth", str(getattr(config, "use_stealth", False)))
             table.add_row("Timeout", f"{getattr(config, 'crawl_timeout') or '-'}s")
-            table.add_row("Image Process", str(getattr(config, "process_images", False)))
+            table.add_row(
+                "Image Process", str(getattr(config, "process_images", False))
+            )
 
             notes = getattr(config, "notes", None)
             output = f"{RichRule('Crawl Config', style='cyan', align='left')}\n{table}"

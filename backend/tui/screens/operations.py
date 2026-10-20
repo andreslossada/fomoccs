@@ -50,20 +50,29 @@ class OperationsScreen(Screen[object]):
         yield from compose_nav_tabs()
         yield Label("[bold]\u25b8 Operations[/bold]", id="breadcrumb")
         yield Container(
-            Static("[bold $accent]\u2500\u2500 Crawl Operations \u2500\u2500[/]", classes="ops-section"),
+            Static(
+                "[bold $accent]\u2500\u2500 Crawl Operations \u2500\u2500[/]",
+                classes="ops-section",
+            ),
             Horizontal(
                 Button("Crawl: All due sources", id="btn-crawl-all"),
                 Button("Crawl: Tier 1 sources", id="btn-crawl-tier1"),
                 classes="ops-button-row",
             ),
-            Static("[bold $accent]\u2500\u2500 Process Operations \u2500\u2500[/]", classes="ops-section"),
+            Static(
+                "[bold $accent]\u2500\u2500 Process Operations \u2500\u2500[/]",
+                classes="ops-section",
+            ),
             Horizontal(
                 Button("Reprocess latest crawl job", id="btn-reprocess"),
                 Button("Process all stuck crawl results", id="btn-process-stuck"),
                 Button("Process crawl job #N ...", id="btn-process-job"),
                 classes="ops-button-row",
             ),
-            Static("[bold $accent]\u2500\u2500 Geocode Operations \u2500\u2500[/]", classes="ops-section"),
+            Static(
+                "[bold $accent]\u2500\u2500 Geocode Operations \u2500\u2500[/]",
+                classes="ops-section",
+            ),
             Horizontal(
                 Button("Backfill geocode locations (dry run)", id="btn-geocode-dry"),
                 Button("Backfill geocode locations (apply)", id="btn-geocode-apply"),
@@ -211,10 +220,7 @@ class OperationsScreen(Screen[object]):
         self, job_id: int, client: httpx.AsyncClient | None = None
     ) -> tuple[bool, str]:
         settings = get_settings()
-        url = (
-            f"{settings.api_base_url}"
-            f"/api/v1/admin/process-crawl-job/{job_id}"
-        )
+        url = f"{settings.api_base_url}/api/v1/admin/process-crawl-job/{job_id}"
         headers = {"X-API-Key": settings.sync_api_key}
         try:
             if client is not None:
@@ -275,9 +281,7 @@ class OperationsScreen(Screen[object]):
         status = self._status()
 
         confirmed = await self.app.push_screen_wait(
-            ConfirmDialog(
-                "Process all stuck crawl results? (4 concurrent)"
-            )
+            ConfirmDialog("Process all stuck crawl results? (4 concurrent)")
         )
         if not confirmed:
             return
@@ -287,7 +291,9 @@ class OperationsScreen(Screen[object]):
             count = await count_extracted_results(session)
             if count == 0:
                 out.clear()
-                out.write("[green]No stuck crawl results — everything is processed.[/green]")
+                out.write(
+                    "[green]No stuck crawl results — everything is processed.[/green]"
+                )
                 return
 
             job_ids = await get_jobs_with_extracted_results(session)
@@ -312,8 +318,7 @@ class OperationsScreen(Screen[object]):
             out.write(
                 f"[yellow]Processing... ({done}/{total}) "
                 f"[green]{ok_count} ok[/green] "
-                f"[red]{fail_count} fail[/red][/yellow]\n"
-                + "\n".join(lines[-20:])
+                f"[red]{fail_count} fail[/red][/yellow]\n" + "\n".join(lines[-20:])
             )
 
         sem = asyncio.Semaphore(4)
@@ -331,16 +336,14 @@ class OperationsScreen(Screen[object]):
                     fail_count += 1
                     lines.append(
                         f"  [red]FAIL[/red] Job #{job_id}: "
-                        f"{msg[msg.find(' — ') + 3:] if ' — ' in msg else msg}"
+                        f"{msg[msg.find(' — ') + 3 :] if ' — ' in msg else msg}"
                     )
                 await update_output()
 
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(120), limits=httpx.Limits(max_connections=4)
         ) as httpx_client:
-            await asyncio.gather(
-                *(process_one_under_sem(jid) for jid in job_ids)
-            )
+            await asyncio.gather(*(process_one_under_sem(jid) for jid in job_ids))
 
         out.write(
             f"\n[bold]Done: {ok_count} ok, {fail_count} failed[/bold]\n"

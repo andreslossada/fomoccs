@@ -33,9 +33,7 @@ class SourceWizardScreen(Screen[None]):
     ]
 
     def action_show_help(self) -> None:
-        title = (
-            "Edit Source" if self._source_id else "New Source"
-        )
+        title = "Edit Source" if self._source_id else "New Source"
         self.app.push_screen(HelpModal(title, self.BINDINGS))
 
     _type_options: list[tuple[str, str]] = [
@@ -49,6 +47,12 @@ class SourceWizardScreen(Screen[None]):
         ("browser (website scraping)", "browser"),
         ("json_api (API endpoint)", "json_api"),
         ("instagram (profile scraping)", "instagram"),
+    ]
+
+    _tier_options: list[tuple[str, int]] = [
+        ("1 — every 6h", 1),
+        ("2 — every 12h", 2),
+        ("3 — every 24h", 3),
     ]
 
     _urls: list[str] = []
@@ -81,10 +85,7 @@ class SourceWizardScreen(Screen[None]):
             yield Select(self._mode_options, id="sw-mode")
 
             yield Label("Tier (1=fastest, 3=slowest):")
-            yield Select(
-                [("1 — every 6h", 1), ("2 — every 12h", 2), ("3 — every 24h", 3)],
-                id="sw-tier",
-            )
+            yield Select(self._tier_options, id="sw-tier")
 
             yield Label("Trust level (0.1-1.0, optional):")
             yield Input(placeholder="e.g. 0.8", id="sw-trust")
@@ -136,9 +137,7 @@ class SourceWizardScreen(Screen[None]):
         if data is None:
             return
         self.query_one("#sw-name", Input).value = str(data.get("name", ""))
-        self.query_one("#sw-trust", Input).value = str(
-            data.get("trust_level") or ""
-        )
+        self.query_one("#sw-trust", Input).value = str(data.get("trust_level") or "")
 
         # Pre-select type
         src_type = str(data.get("type", "crawler"))
@@ -159,9 +158,9 @@ class SourceWizardScreen(Screen[None]):
         # Pre-select tier
         tier = data.get("tier", 1)
         tier_select = self.query_one("#sw-tier", Select)
-        for _label, val in tier_select._options:
-            if val == tier:
-                tier_select.value = val
+        for _tier_label, tier_value in self._tier_options:
+            if tier_value == tier:
+                tier_select.value = str(tier_value)
                 break
 
         # Prepopulate Instagram fields
@@ -241,7 +240,7 @@ class SourceWizardScreen(Screen[None]):
         source_type = str(type_sel.value) if type_sel.value else "crawler"
 
         tier_sel = self.query_one("#sw-tier", Select)
-        tier = int(tier_sel.value) if tier_sel.value else 1
+        tier = int(str(tier_sel.value)) if tier_sel.value else 1
 
         trust_text = self.query_one("#sw-trust", Input).value.strip()
         trust_level: float | None = None
@@ -255,9 +254,7 @@ class SourceWizardScreen(Screen[None]):
         session: AsyncSession = await get_session()
         try:
             if self._source_id is not None:
-                await self._update_source(
-                    session, name, source_type, tier, trust_level
-                )
+                await self._update_source(session, name, source_type, tier, trust_level)
             else:
                 await self._insert_source(
                     session, name, source_type, tier, trust_level, crawl_mode
@@ -272,7 +269,7 @@ class SourceWizardScreen(Screen[None]):
 
         action = "updated" if self._source_id else "saved"
         self._status(f"[green]Source {action}![/green]")
-        self.set_timer(1, lambda: self.dismiss(True))
+        self.set_timer(1, lambda: self.dismiss())
 
     async def _insert_source(
         self,

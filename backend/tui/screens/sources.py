@@ -28,8 +28,14 @@ class SourcesScreen(BaseListScreen):
 
     _table_id = "sources-table"
     _columns = [
-        "ID", "Name", "Type", "Tier", "Website",
-        "Last Crawl", "Events", "Status",
+        "ID",
+        "Name",
+        "Type",
+        "Tier",
+        "Website",
+        "Last Crawl",
+        "Events",
+        "Status",
     ]
     _title = "Sources"
     _page_size = 50
@@ -111,9 +117,7 @@ class SourcesScreen(BaseListScreen):
     # ── source actions ───────────────────────────────────────────────
     def _get_selected(self) -> dict[str, Any] | None:
         table = self.query_one(f"#{self._table_id}", DataTable)
-        row_key = (
-            table.cursor_coordinate.row if table.cursor_coordinate else None
-        )
+        row_key = table.cursor_coordinate.row if table.cursor_coordinate else None
         if not self._data or row_key is None or row_key >= len(self._data):
             return None
         return self._data[row_key]
@@ -133,9 +137,7 @@ class SourcesScreen(BaseListScreen):
             src["disabled"] = not disabled
             self._render_table()
 
-    async def _toggle_active_source(
-        self, source_id: int, disabled: bool
-    ) -> None:
+    async def _toggle_active_source(self, source_id: int, disabled: bool) -> None:
         session = await get_session()
         try:
             await session.execute(
@@ -159,9 +161,7 @@ class SourcesScreen(BaseListScreen):
         source_id = src["id"]
         if not isinstance(source_id, int):
             return
-        self.app.push_screen(
-            SourceWizardScreen(source_id=source_id, data=src)
-        )
+        self.app.push_screen(SourceWizardScreen(source_id=source_id, data=src))
 
     def action_delete_source(self) -> None:
         src = self._get_selected()
@@ -187,18 +187,14 @@ class SourcesScreen(BaseListScreen):
         session = await get_session()
         try:
             await session.execute(
-                text(
-                    "UPDATE sources SET deleted_at = :now WHERE id = :sid"
-                ),
+                text("UPDATE sources SET deleted_at = :now WHERE id = :sid"),
                 {
                     "now": datetime.now(UTC).replace(tzinfo=None),
                     "sid": source_id,
                 },
             )
             await session.commit()
-            self.app.notify(
-                f"'{source_name}' deleted", severity="information"
-            )
+            self.app.notify(f"'{source_name}' deleted", severity="information")
         finally:
             await session.close()
         await self._load_data()
@@ -206,22 +202,15 @@ class SourcesScreen(BaseListScreen):
     def action_force_crawl(self) -> None:
         src = self._get_selected()
         if src is not None and isinstance(src["id"], int):
-            self.run_worker(
-                self._toggle_force_crawl(src["id"], str(src["name"]))
-            )
+            self.run_worker(self._toggle_force_crawl(src["id"], str(src["name"])))
 
-    async def _toggle_force_crawl(
-        self, source_id: int, source_name: str
-    ) -> None:
+    async def _toggle_force_crawl(self, source_id: int, source_name: str) -> None:
         from tui.widgets.confirm_dialog import ConfirmDialog
 
         session = await get_session()
         try:
             result = await session.execute(
-                text(
-                    "SELECT force_crawl FROM crawl_configs "
-                    "WHERE source_id = :sid"
-                ),
+                text("SELECT force_crawl FROM crawl_configs WHERE source_id = :sid"),
                 {"sid": source_id},
             )
             row = result.fetchone()
@@ -286,14 +275,10 @@ class SourcesScreen(BaseListScreen):
             return
         settings = get_settings()
         pipeline_dir = os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__), "..", "..", "..", "pipeline"
-            )
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "pipeline")
         )
         if sys.platform == "win32":
-            python = os.path.join(
-                pipeline_dir, ".venv", "Scripts", "python.exe"
-            )
+            python = os.path.join(pipeline_dir, ".venv", "Scripts", "python.exe")
         else:
             python = os.path.join(pipeline_dir, ".venv", "bin", "python")
         env: dict[str, str] = {
@@ -332,9 +317,7 @@ class SourcesScreen(BaseListScreen):
             self._tier_filter = 3
         else:
             self._tier_filter = None
-        label = (
-            f"Tier: {self._tier_filter}" if self._tier_filter else "Tier: all"
-        )
+        label = f"Tier: {self._tier_filter}" if self._tier_filter else "Tier: all"
         self.query_one("#tier-label", Label).update(label)
         self._offset = 0
         self.run_worker(self._load_data())

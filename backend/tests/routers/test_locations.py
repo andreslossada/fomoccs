@@ -38,9 +38,7 @@ def _make_app(
         yield db_session
 
     async def _override_geocoding_keys() -> GeocodingKeys:
-        return GeocodingKeys(
-            google_api_key=google_key, geoapify_api_key=geoapify_key
-        )
+        return GeocodingKeys(google_api_key=google_key, geoapify_api_key=geoapify_key)
 
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_geocoding_keys] = _override_geocoding_keys

@@ -36,6 +36,7 @@ log = logging.getLogger("reprocess_crawl_jobs")
 
 def _dsn() -> str:
     from os import environ
+
     return (
         f"postgresql://{environ['DB_USER']}:{environ['DB_PASS']}"
         f"@{environ['DB_HOST']}:{environ.get('DB_PORT', '5432')}"

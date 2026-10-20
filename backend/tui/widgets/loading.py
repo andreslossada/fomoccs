@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from textual.widgets import Static
 
 
@@ -16,7 +18,16 @@ class LoadingIndicator(Static):
     """
 
     _frames = [
-        "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
+        "⠋",
+        "⠙",
+        "⠹",
+        "⠸",
+        "⠼",
+        "⠴",
+        "⠦",
+        "⠧",
+        "⠇",
+        "⠏",
     ]
     _frame_idx: int = 0
     _label: str = ""
@@ -25,7 +36,7 @@ class LoadingIndicator(Static):
         self,
         label: str = "Loading...",
         id: str | None = None,
-        **kwargs: object,
+        **kwargs: Any,
     ) -> None:
         super().__init__(id=id, **kwargs)
         self._label = label
