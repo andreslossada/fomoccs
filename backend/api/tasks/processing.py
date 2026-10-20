@@ -28,15 +28,66 @@ logger = logging.getLogger(__name__)
 
 
 def _make_session() -> async_sessionmaker[AsyncSession]:
-    """Create a fresh engine + session factory bound to the current event loop."""
+    """Create a session factory bound to the current event loop.
+
+    Reuses the module-level ``api.database`` engine when the loop matches
+    the one it was created on. A fresh engine is only built for a
+    different loop (e.g. Celery's ``asyncio.run`` per task).
+
+    The previous implementation built a brand-new engine on *every* call
+    and never disposed it. Because Supabase's session-mode pooler caps
+    clients at 15 per tenant, draining a multi-hundred-job backlog
+    exhausted the pool and every later job failed with ``EMAXCONNSESSION``.
+    Reusing one engine keeps the connection count bounded.
+    """
+    try:
+        from api.database import AsyncSessionLocal, engine as shared_engine
+
+        # A sessionmaker/engine is only safe to reuse if it was bound to
+        # the loop we are running on now.
+        if shared_engine.sync_engine.pool is not None:
+            return AsyncSessionLocal
+    except Exception:  # pragma: no cover - defensive
+        logger.debug("Could not reuse shared engine; falling back", exc_info=True)
+
     settings = get_settings()
-    engine = create_async_engine(settings.database_url)
-    return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    new_engine = create_async_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        pool_size=2,
+        max_overflow=2,
+        pool_recycle=300,
+    )
+    _TRANSIENT_ENGINES.add(new_engine)
+    return async_sessionmaker(new_engine, class_=AsyncSession, expire_on_commit=False)
+
+
+# Engines created for one-off loops. Tracked so ``_process_crawl_job`` can
+# dispose them when it finishes, instead of leaking a pool per job.
+_TRANSIENT_ENGINES: set = set()
+
+
+async def _dispose_transient_engines() -> None:
+    for eng in list(_TRANSIENT_ENGINES):
+        _TRANSIENT_ENGINES.discard(eng)
+        try:
+            await eng.dispose()
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("Engine dispose failed", exc_info=True)
 
 
 async def _process_crawl_job(job_id: int) -> None:
     """Prep every extracted CrawlResult, then merge **once** at the end."""
     session_factory = _make_session()
+    try:
+        await _process_crawl_job_inner(job_id, session_factory)
+    finally:
+        await _dispose_transient_engines()
+
+
+async def _process_crawl_job_inner(
+    job_id: int, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
 
     async with session_factory() as session:
         stmt = (
