@@ -14,12 +14,15 @@ from dataclasses import dataclass
 
 import httpx
 
-# Caracas bounding box
+# Caracas metropolitan bounding box
+# Covers Caracas proper + Baruta, Chacao, El Hatillo, Sucre, Vargas/La Guaira,
+# San Antonio de los Altos, Guarenas/Guatire. Loose enough to catch edge venues
+# without including Maracay/Valencia/other distant cities.
 CCS_BOUNDS = {
-    "lat_min": 10.35,
-    "lat_max": 10.55,
-    "lng_min": -67.05,
-    "lng_max": -66.75,
+    "lat_min": 10.30,
+    "lat_max": 10.65,
+    "lng_min": -67.15,
+    "lng_max": -66.65,
 }
 
 CCS_CENTER = {"lat": 10.48, "lng": -66.90}
