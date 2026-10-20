@@ -1339,7 +1339,11 @@ Based on the website content below, extract all upcoming events. For each event,
 {note_section}
 Rules:
 - Extract ALL events from the page - do not skip or summarize
-- Only include events in the Caracas area within the next 6 months
+- ONLY include events physically located in the Caracas metropolitan area (Caracas proper, Baruta, Chacao, Hatillo, Sucre, Altamira, La Trinidad, Los Palos Grandes, Guarenas, Guatire, Vargas/La Guaira, San Antonio de los Altos).
+- REJECT any event located outside Caracas: Maracay, Valencia, Barquisimeto, Punto Fijo, Maturin, Barinas, Merida, Ciudad Guayana, Puerto La Cruz, Cumaná, Coro, Tucupita, and any other state capital.
+- If a page mixes Caracas and other-city listings, keep ONLY the Caracas ones.
+- If a listing gives no city at all, keep it only if the venue name is a well-known Caracas venue; otherwise skip it.
+- Only include events within the next 6 months
 - Dates on Venezuelan sites often use DD/MM/YYYY format and Spanish month names.
 - Ignore unrelated event sections ("Hot Events", "Similar events", etc.)
 - For recurring events, expand ALL individual dates into the occurrences array

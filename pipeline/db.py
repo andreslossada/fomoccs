@@ -432,7 +432,7 @@ def _model_for_label(label: str) -> str | None:
     return None
 
 
-def get_incomplete_crawl_results(cursor):
+def get_incomplete_crawl_results(cursor, source_ids=None, max_age_days=7):
     """
     Get crawl results that need extraction (retry support).
 
@@ -440,9 +440,33 @@ def get_incomplete_crawl_results(cursor):
     - In 'crawled' status (need extraction)
     - In 'failed' status but have crawled_content (extraction failed, can retry)
 
-    Returns results from any crawl job, not just today's.
+    Args:
+        source_ids: when given, only return results for these sources. Without
+            this, a ``--ids N`` run would still drag in every stale result in
+            the table, which is how a targeted smoke test turned into a
+            full-table extraction pass.
+        max_age_days: ignore results older than this. Re-extracting month-old
+            HTML wastes LLM tokens on pages whose listings have all expired.
+
+    Returns results from any crawl job within the age window, not just today's.
     """
-    cursor.execute("""
+    params: list = []
+    source_clause = ""
+    if source_ids:
+        placeholders = ",".join(["%s"] * len(source_ids))
+        source_clause = f"AND cr.source_id IN ({placeholders})"
+        params.extend(source_ids)
+
+    age_clause = ""
+    if max_age_days:
+        age_clause = (
+            "AND cr.crawled_at IS NOT NULL "
+            "AND cr.crawled_at > NOW() - (%s || ' days')::interval"
+        )
+        params.append(str(max_age_days))
+
+    cursor.execute(
+        f"""
         SELECT cr.id, cr.status, cr.source_id, cr.crawl_job_id,
                s.name, cc.notes, cj.started_at,
                CASE
@@ -461,8 +485,13 @@ def get_incomplete_crawl_results(cursor):
               cr.status = 'crawled'
               OR (cr.status = 'failed' AND cnt.crawled_content IS NOT NULL)
           )
+          {source_clause}
+          {age_clause}
         ORDER BY cr.status, cj.started_at DESC
-    """)
+        LIMIT 500
+    """,
+        params,
+    )
 
     results = []
     for row in cursor.fetchall():

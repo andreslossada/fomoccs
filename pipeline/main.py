@@ -69,7 +69,7 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
         print("STEP 0: Checking for Incomplete Crawl Results")
         print(f"{'=' * 60}")
 
-        incomplete_results = db.get_incomplete_crawl_results(cursor)
+        incomplete_results = db.get_incomplete_crawl_results(cursor, source_ids)
         incomplete_crawled = [r for r in incomplete_results if r["status"] == "crawled"]
 
         def print_incomplete_status(results, action_needed):
@@ -405,24 +405,37 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
         if os.getenv("USE_CELERY", "").lower() == "true":
             task_id = publish_process_crawl_job(crawl_job_id)
             print(f"  - task_id: {task_id}")
-        elif os.getenv("API_BASE_URL"):
-            # Call backend processing endpoint directly (no Celery needed)
-            base = os.getenv("API_BASE_URL", "").rstrip("/")
-            api_key = os.getenv("SYNC_API_KEY", "changeme")
-            url = f"{base}/api/v1/admin/process-crawl-job/{crawl_job_id}"
-            print(f"Calling processing endpoint: {url}")
-            try:
-                import urllib.request
-                req = urllib.request.Request(url, data=b"", method="POST")
-                req.add_header("Content-Length", "0")
-                req.add_header("X-API-Key", api_key)
-                with urllib.request.urlopen(req, timeout=120) as resp:
-                    body = json.loads(resp.read().decode())
-                    print(f"Processing result: {body}")
-            except Exception as e:
-                print(f"Warning: Processing endpoint call failed: {e}")
         else:
-            print("Skipping Celery handoff (USE_CELERY not set)")
+            # Direct HTTP handoff (no Celery needed). Accept both
+            # API_BASE_URL and BACKEND_API_URL — .env files in the wild
+            # use either name, and only honouring one silently skipped
+            # processing, leaving every extracted event stranded.
+            base = (
+                os.getenv("API_BASE_URL") or os.getenv("BACKEND_API_URL") or ""
+            ).rstrip("/")
+            if base:
+                api_key = os.getenv("SYNC_API_KEY", "changeme")
+                url = f"{base}/api/v1/admin/process-crawl-job/{crawl_job_id}"
+                print(f"Calling processing endpoint: {url}")
+                try:
+                    import urllib.request
+
+                    req = urllib.request.Request(url, data=b"", method="POST")
+                    req.add_header("Content-Length", "0")
+                    req.add_header("X-API-Key", api_key)
+                    with urllib.request.urlopen(req, timeout=600) as resp:
+                        body = json.loads(resp.read().decode())
+                        print(
+                            f"Processing result: created={body.get('extracted_events_created')} "
+                            f"skipped={body.get('extracted_events_skipped')}"
+                        )
+                except Exception as e:
+                    print(f"Warning: Processing endpoint call failed: {e}")
+            else:
+                print(
+                    "Skipping processing handoff — set API_BASE_URL or "
+                    "BACKEND_API_URL (or USE_CELERY=true)."
+                )
 
         print(f"{'=' * 60}")
         print("PIPELINE COMPLETED SUCCESSFULLY")

@@ -30,6 +30,112 @@ STOP_WORDS: frozenset[str] = frozenset(
     {"the", "and", "for", "with", "from", "into", "your"}
 )
 
+# Venezuelan cities outside the Caracas metropolitan area. National
+# cultural sites (Fundarte, Teatro, CCAM) routinely publish listings for
+# these; the extractor prompt asks the LLM to skip them, but that is not
+# reliable enough on its own. Anything matching is logged and dropped so
+# out-of-city events never reach the map (they have no resolvable
+# coordinates and silently occupy feed slots).
+OUT_OF_CITY_MARKERS: tuple[str, ...] = (
+    # --- Capitales y ciudades principales ---
+    "maracay",
+    "valencia carabobo",
+    "valencia",
+    "barquisimeto",
+    "punto fijo",
+    "ciudad guayana",
+    "puerto la cruz",
+    "cumana",
+    "maturin",
+    "barinas",
+    "merida",
+    "tucupita",
+    "coro",
+    "ciudad bolivar",
+    "maracaibo",
+    # --- Otras ciudades ---
+    "san juan de los morros",
+    "san cristobal",
+    "san fernando de apure",
+    "calabozo",
+    "puerto ordaz",
+    "el tigre",
+    "anaco",
+    "caripito",
+    "guanare",
+    "acayurman",
+    "turmero",
+    "bocono",
+    "la trinidad de orinoco",
+    "coro falcon",
+    "guigue",
+    "valles del tuy",
+    "santa teresa del tuy",
+    "valle del tuy",
+    "ciudad ojeda",
+    "machiques",
+    "la frontera",
+    "san antonio del tachira",
+    "capaneda",
+    "piedras Blancas",
+)
+
+
+def is_out_of_caracas(*texts: str | None) -> bool:
+    """Return True if any text names a city clearly outside Caracas.
+
+    Used as a hard backstop after the LLM extraction step. Accents are
+    folded (``Maracay`` written decomposed still matches) and matching is
+    word-bounded so ``El Tigre`` doesn't fire on ``Tigres``.
+    """
+    import unicodedata
+
+    for raw in texts:
+        if not raw:
+            continue
+        # Fold accents so "Maracay" matches "Maracay" written with a
+        # decomposed accent.
+        folded = unicodedata.normalize("NFKD", raw.lower())
+        plain = "".join(c for c in folded if not unicodedata.combining(c))
+        for marker in OUT_OF_CITY_MARKERS + OUT_OF_CITY_VENUE_MARKERS:
+            # Word-boundary match so "El Tigre" doesn't fire on
+            # "Tigres" and "Guarenas" isn't caught by "guate".
+            if re.search(rf"(?<![a-z0-9]){re.escape(marker)}(?![a-z0-9])", plain):
+                return True
+    return False
+
+
+# Venue-name fragments that only exist outside Caracas. Regional portals
+# list national tours city by city, and the city is often only implied by
+# the venue ("AMANECER VALLENATO" was at "Palacio de Eventos de Vzla"
+# in Puerto Ordaz). These catch those cases, which the explicit city
+# markers miss.
+OUT_OF_CITY_VENUE_MARKERS: tuple[str, ...] = (
+    "palacio de eventos de vzla",
+    "palacio de eventos",
+    "grato jardin de eventos",
+    "gaduca eventos",
+    "aten",
+    "colegio loyola",
+    "colegio loyola gumilla",
+    "ateneo de punto fijo",
+    "teatro luis hurtado",
+    "casa sindical",
+    "san marcos palace",
+    "gran salon san marcos",
+    "club sirio",
+    "tibisay hotel",
+    "tibisay",
+    "trinitarias suites",
+    "trinitarias",
+    "tulio febres cordero",
+    "centro cultural espanol cervantes",
+    "centro cultural tulio febres",
+    "aula magna de barquisimeto",
+    "museo de arte moderno de barquisimeto",
+)
+
+
 SEMANTIC_EQUIVALENTS: dict[str, str] = {
     "dinner": "dine",
     "dining": "dine",
@@ -386,7 +492,18 @@ def are_names_similar(name1: str, name2: str) -> bool:
 # JSONB parsing helpers (ported from pipeline/merger.py lines 364-375, 563-610)
 # ---------------------------------------------------------------------------
 
-FUTURE_LIMIT_DAYS: int = 90
+# How far ahead an occurrence may fall and still be worth keeping.
+# Must match the window the public feed serves
+# (``backend/api/routers/feed.py`` ``timedelta(days=180)``) and the
+# frontend default (``src/js/script.js`` ``END_DATE``). When this was 90
+# while the feed served 180, events between day 91 and 180 were dropped at
+# merge time and could never reach the map.
+FUTURE_LIMIT_DAYS: int = 180
+
+# Grace period before an event is archived: an occurrence that ended
+# within the last N days still counts as recent. Without it, an event
+# whose last date slips past as time advances is archived the moment it
+# ends, even while a source is slow to re-crawl.
 ARCHIVE_GRACE_DAYS: int = 14
 
 
@@ -1127,6 +1244,7 @@ async def merge_extracted_events(
             Location.lng,
             ExtractedEvent.occurrences,
             ExtractedEvent.tags,
+            Location.name,
         )
         .join(CrawlResult, CrawlResult.id == ExtractedEvent.crawl_result_id)
         .join(Location, Location.id == ExtractedEvent.location_id, isouter=True)
@@ -1162,6 +1280,7 @@ async def merge_extracted_events(
             lng,
             raw_occurrences,
             raw_tags,
+            location_name,
         ) = row
 
         if not name:
@@ -1175,6 +1294,25 @@ async def merge_extracted_events(
             )
 
         affected_source_ids.add(source_id)
+
+        # Hard backstop for events outside the Caracas metro area. The
+        # extractor prompt asks the LLM to skip them, but national portals
+        # (Fundarte, Teatro, CCAM) mix in other cities often enough that
+        # prompt-only filtering leaked Maracay/Barquisimeto/Punto Fijo
+        # listings into the feed. They can never geocode to Caracas, so
+        # drop them here rather than let them occupy feed slots.
+        if is_out_of_caracas(name, sublocation, url, location_name):
+            await log_extracted_event(
+                db,
+                extracted_event_id=ee_id,
+                status=ExtractedEventStatus.skipped_out_of_city,
+                message=(
+                    f"Outside Caracas metro area: name={name!r} "
+                    f"sublocation={sublocation!r} location={location_name!r} "
+                    f"url={url!r}"
+                ),
+            )
+            continue
 
         if location_id is None:
             await log_extracted_event(

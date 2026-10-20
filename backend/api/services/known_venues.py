@@ -26,6 +26,18 @@ class VenueCoords:
     emoji: str = "\U0001f3ad"  # 🎭
 
 
+def _aliases(coords: VenueCoords, *names: str) -> dict[str, VenueCoords]:
+    """Map every alias in *names* to the same curated coordinates.
+
+    Venues are commonly referred to by several names that all normalize to
+    different lookup keys ("ciudad universitaria ucv" and "ciudad
+    universitaria", for example). Grouping them keeps the shared coordinate
+    in one place instead of repeating the literal — and avoids repeating a
+    dict key, which Python silently collapses to the last value.
+    """
+    return dict.fromkeys(names, coords)
+
+
 # Canonical names match exactly against the venue name after
 # :func:`_normalize` (NFKD + lower + strip combining diacritics + strip
 # punctuation + collapse whitespace). Aliases are an OR — first match wins.
@@ -49,16 +61,11 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "teatro municipal": VenueCoords(
         10.4940, -66.8555, "Centro Cultural Chacao, Caracas"
     ),
-    "teatro chacao": VenueCoords(
-        10.4940, -66.8555, "Centro Cultural Chacao, Caracas"
-    ),
+    "teatro chacao": VenueCoords(10.4940, -66.8555, "Centro Cultural Chacao, Caracas"),
     "fundacion rajatabla": VenueCoords(
         10.4945, -66.8779, "CELARG, Av. Luis Roche, Altamira"
     ),
-    "rajatabla": VenueCoords(
-        10.4945, -66.8779, "CELARG, Av. Luis Roche, Altamira"
-    ),
-
+    "rajatabla": VenueCoords(10.4945, -66.8779, "CELARG, Av. Luis Roche, Altamira"),
     # ----- Cultural centers -----
     "centro cultural chacao": VenueCoords(
         10.4940, -66.8555, "Av. Guaicaipuro con Av. F. Fajardo, Chacao"
@@ -69,9 +76,7 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "centro cultural de arte moderno": VenueCoords(
         10.4967, -66.8722, "Torre BOD, Av. Bolívar, Caracas"
     ),
-    "ccam": VenueCoords(
-        10.4967, -66.8722, "Torre BOD, Av. Bolívar, Caracas"
-    ),
+    "ccam": VenueCoords(10.4967, -66.8722, "Torre BOD, Av. Bolívar, Caracas"),
     "centro de arte los galpones": VenueCoords(
         10.4638, -66.9146, "Av. Ávila con Sur 11, Los Galpones"
     ),
@@ -81,9 +86,7 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "asociacion cultural humboldt": VenueCoords(
         10.4772, -66.8675, "Colinas de Los Caobos, Caracas"
     ),
-    "celarg": VenueCoords(
-        10.4945, -66.8779, "Av. Luis Roche, Altamira Norte"
-    ),
+    "celarg": VenueCoords(10.4945, -66.8779, "Av. Luis Roche, Altamira Norte"),
     "centro de estudios latinamericanos romulo gallegos": VenueCoords(
         10.4945, -66.8779, "Av. Luis Roche, Altamira Norte"
     ),
@@ -99,7 +102,6 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "villa planchart": VenueCoords(
         10.3955, -66.8874, "Lomas de La Trinidad, Av. Luis Roche, Caracas"
     ),
-
     # ----- International cultural centers -----
     "centro cultural de espana en caracas": VenueCoords(
         10.4970, -66.8770, "Av. Rómulo Gallegos, cruce con Principal, Altamira"
@@ -125,10 +127,7 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "instituto italiano de cultura de caracas": VenueCoords(
         10.4941, -66.8755, "Calle Arturo Uslar Pietri, Altamira"
     ),
-    "iiccaracas": VenueCoords(
-        10.4941, -66.8755, "Calle Arturo Uslar Pietri, Altamira"
-    ),
-
+    "iiccaracas": VenueCoords(10.4941, -66.8755, "Calle Arturo Uslar Pietri, Altamira"),
     # ----- Universities -----
     "direccion de cultura ucv": VenueCoords(
         10.4905, -66.9005, "Sala de Conciertos, Ciudad Universitaria UCV"
@@ -139,9 +138,7 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "universidad central de venezuela": VenueCoords(
         10.4905, -66.9005, "Ciudad Universitaria, Caracas"
     ),
-    "ucv": VenueCoords(
-        10.4905, -66.9005, "Ciudad Universitaria, Caracas"
-    ),
+    "ucv": VenueCoords(10.4905, -66.9005, "Ciudad Universitaria, Caracas"),
     "ciudad universitaria": VenueCoords(
         10.4905, -66.9005, "Ciudad Universitaria, Caracas"
     ),
@@ -169,7 +166,6 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "usb": VenueCoords(
         10.4095, -66.8836, "Universidad Simón Bolívar, Sartenejas, Caracas"
     ),
-
     # ----- Shopping malls -----
     "sambil": VenueCoords(
         10.4915, -66.8536, "Av. Libertador, frente a Plaza Venezuela, Caracas"
@@ -177,18 +173,14 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "sambil caracas": VenueCoords(
         10.4915, -66.8536, "Av. Libertador, frente a Plaza Venezuela, Caracas"
     ),
-    "tolon": VenueCoords(
-        10.4984, -66.8622, "Av. San Felipe con Av. La Salle, Caracas"
-    ),
+    "tolon": VenueCoords(10.4984, -66.8622, "Av. San Felipe con Av. La Salle, Caracas"),
     "tolon fashion mall": VenueCoords(
         10.4984, -66.8622, "Av. San Felipe con Av. La Salle, Caracas"
     ),
     "centro comercial lider": VenueCoords(
         10.4631, -66.9752, "Calle Real de Los Dos Caminos, Caracas"
     ),
-    "cclider": VenueCoords(
-        10.4631, -66.9752, "Calle Real de Los Dos Caminos, Caracas"
-    ),
+    "cclider": VenueCoords(10.4631, -66.9752, "Calle Real de Los Dos Caminos, Caracas"),
     "cc el lider": VenueCoords(
         10.4631, -66.9752, "Calle Real de Los Dos Caminos, Caracas"
     ),
@@ -198,7 +190,6 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "parque comercial cerro verde": VenueCoords(
         10.4950, -66.8280, "Final Av. Río de Janeiro, El Cafetal"
     ),
-
     # ----- Hotels (frequently used as event venues) -----
     "hotel humboldt": VenueCoords(
         10.5418, -66.8836, "Parque Nacional El Ávila, Caracas"
@@ -212,21 +203,13 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "hotel eurobuilding caracas": VenueCoords(
         10.4860, -66.8559, "Calle La Guairita, Chuao, Caracas"
     ),
-    "caracas music hall": VenueCoords(
-        10.4958, -66.8580, "Torre La Castellana, Chacao"
-    ),
-    "salon turmalina": VenueCoords(
-        10.4860, -66.8559, "Hotel Eurobuilding, Chuao"
-    ),
-
+    "caracas music hall": VenueCoords(10.4958, -66.8580, "Torre La Castellana, Chacao"),
+    "salon turmalina": VenueCoords(10.4860, -66.8559, "Hotel Eurobuilding, Chuao"),
     # ----- Outdoor / parks (concert venue) -----
     "concha acustica de bello monte": VenueCoords(
         10.4790, -66.8733, "Parque del Este, Bello Monte"
     ),
-    "parque del este": VenueCoords(
-        10.4790, -66.8733, "Parque del Este, Bello Monte"
-    ),
-
+    "parque del este": VenueCoords(10.4790, -66.8733, "Parque del Este, Bello Monte"),
     # ----- Sports venues -----
     "estadio universitario ucv": VenueCoords(
         10.4858, -66.9101, "Ciudad Universitaria UCV, Caracas"
@@ -246,18 +229,12 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "estadio monumental de caracas": VenueCoords(
         10.4955, -66.8800, "Av. Simón Planas, Caracas"
     ),
-    "estadio monumental": VenueCoords(
-        10.4955, -66.8800, "Av. Simón Planas, Caracas"
-    ),
-    "inh hipodromo": VenueCoords(
-        10.4697, -66.9036, "Hipódromo La Rinconada, Caracas"
-    ),
+    "estadio monumental": VenueCoords(10.4955, -66.8800, "Av. Simón Planas, Caracas"),
+    "inh hipodromo": VenueCoords(10.4697, -66.9036, "Hipódromo La Rinconada, Caracas"),
     "hipodromo la rinconada": VenueCoords(
         10.4697, -66.9036, "Hipódromo La Rinconada, Caracas"
     ),
-    "la rinconada": VenueCoords(
-        10.4697, -66.9036, "Hipódromo La Rinconada, Caracas"
-    ),
+    "la rinconada": VenueCoords(10.4697, -66.9036, "Hipódromo La Rinconada, Caracas"),
     "polideportivo pachencho romero": VenueCoords(
         10.4567, -66.9069, "Av. Principal La Rinconada, Caracas"
     ),
@@ -267,7 +244,6 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "senadores de caracas caracas": VenueCoords(
         10.4858, -66.9101, "Estadio Universitario UCV, Caracas"
     ),
-
     # ----- Museums -----
     "museo de arte contemporaneo": VenueCoords(
         10.4958, -66.8733, "Parque del Este, Caracas"
@@ -281,7 +257,6 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "museo de ciencias": VenueCoords(
         10.4905, -66.9005, "Ciudad Universitaria, Caracas"
     ),
-
     # ----- Theaters (extra) -----
     "teatro municipal de caracas": VenueCoords(
         10.5071, -66.9035, "Av. Lecuna, frente a Plaza Caracas, Caracas"
@@ -289,25 +264,18 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "teatro principal de caracas": VenueCoords(
         10.5080, -66.9035, "Av. Lecuna, Caracas"
     ),
-    "teatro luis peraza": VenueCoords(
-        10.4330, -66.7842, "El Hatillo, Caracas"
-    ),
-    "villa teresa": VenueCoords(
-        10.4905, -66.8544, "La Castellana, Caracas"
-    ),
-
+    "teatro luis peraza": VenueCoords(10.4330, -66.7842, "El Hatillo, Caracas"),
+    "villa teresa": VenueCoords(10.4905, -66.8544, "La Castellana, Caracas"),
     # ----- Universities / cultural (extra names) -----
-    "ciudad universitaria ucv": VenueCoords(
-        10.4905, -66.9005, "Ciudad Universitaria UCV, Caracas"
+    **_aliases(
+        VenueCoords(10.4905, -66.9005, "Ciudad Universitaria UCV, Caracas"),
+        "ciudad universitaria ucv",
+        "ciudad universitaria",
     ),
-    "ciudad universitaria": VenueCoords(
-        10.4905, -66.9005, "Ciudad Universitaria UCV, Caracas"
-    ),
-    "usb sartenejas": VenueCoords(
-        10.4095, -66.8836, "Universidad Simón Bolívar, Sartenejas"
-    ),
-    "universidad simon bolivar": VenueCoords(
-        10.4095, -66.8836, "Universidad Simón Bolívar, Sartenejas"
+    **_aliases(
+        VenueCoords(10.4095, -66.8836, "Universidad Simón Bolívar, Sartenejas"),
+        "usb sartenejas",
+        "universidad simon bolivar",
     ),
     "ucab campus": VenueCoords(
         10.5000, -66.8744, "Universidad Católica Andrés Bello, Montalbán"
@@ -321,16 +289,14 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "celarg altamira": VenueCoords(
         10.4945, -66.8779, "CELARG, Av. Luis Roche, Altamira"
     ),
-
     # ----- International centers (alias forms) -----
     "goethe institut caracas": VenueCoords(
         10.4958, -66.8733, "Centro Plaza, Av. Luis Roche, Altamira"
     ),
-    "centro cultural de espana caracas": VenueCoords(
-        10.4970, -66.8770, "Av. Rómulo Gallegos, Altamira"
-    ),
-    "centro cultural de espana en caracas": VenueCoords(
-        10.4970, -66.8770, "Av. Rómulo Gallegos, Altamira"
+    **_aliases(
+        VenueCoords(10.4970, -66.8770, "Av. Rómulo Gallegos, Altamira"),
+        "centro cultural de espana caracas",
+        "centro cultural de espana en caracas",
     ),
     "centro cultural de arte moderno sala de conciertos": VenueCoords(
         10.4967, -66.8722, "Torre BOD, Av. Bolívar, Caracas"
@@ -338,36 +304,27 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "centro cultural chacao sala experimental": VenueCoords(
         10.4940, -66.8555, "Centro Cultural Chacao, Av. Guaicaipuro"
     ),
-
     # ----- Malls / plazas / urban (alias forms) -----
-    "espacio caracas cc lider": VenueCoords(
-        10.4631, -66.9752, "Calle Real de Los Dos Caminos, Caracas"
-    ),
-    "cc el lider": VenueCoords(
-        10.4631, -66.9752, "Calle Real de Los Dos Caminos, Caracas"
+    **_aliases(
+        VenueCoords(10.4631, -66.9752, "Calle Real de Los Dos Caminos, Caracas"),
+        "espacio caracas cc lider",
+        "cc el lider",
     ),
     "plaza bolivar de el hatillo": VenueCoords(
         10.4308, -66.7841, "Calle Bolívar, El Hatillo, Caracas"
     ),
-    "plaza de altamira": VenueCoords(
-        10.4938, -66.8785, "Plaza Altamira, Caracas"
-    ),
+    "plaza de altamira": VenueCoords(10.4938, -66.8785, "Plaza Altamira, Caracas"),
     "los palos grandes": VenueCoords(
         10.5008, -66.8528, "Av. Francisco Fajardo, Los Palos Grandes"
     ),
-    "chuao": VenueCoords(
-        10.4861, -66.8559, "Av. Chuao, Caracas"
-    ),
-    "quebrada honda": VenueCoords(
-        10.4340, -66.7860, "El Hatillo, Caracas"
-    ),
+    "chuao": VenueCoords(10.4861, -66.8559, "Av. Chuao, Caracas"),
+    "quebrada honda": VenueCoords(10.4340, -66.7860, "El Hatillo, Caracas"),
     "secadero hacienda la trinidad": VenueCoords(
         10.4500, -66.8515, "Calle Principal La Trinidad, Caracas"
     ),
     "fundaprocura": VenueCoords(
         10.4870, -66.8878, "Fundarte, Parque del Este, Caracas"
     ),
-
     # ----- Music / arts orgs / galleries (curated approximations) -----
     "centro nacional de accion social por la musica": VenueCoords(
         10.4905, -66.9005, "El Sistema, Bellas Artes, Ciudad Universitaria"
@@ -375,14 +332,102 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "el sistema": VenueCoords(
         10.4905, -66.9005, "El Sistema, Bellas Artes, Ciudad Universitaria"
     ),
-    "abra caracas": VenueCoords(
-        10.4920, -66.8860, "Av. México, Bellas Artes, Caracas"
-    ),
-    "gbg arts": VenueCoords(
-        10.4955, -66.8495, "GBG Arts, Los Palos Grandes"
-    ),
+    "abra caracas": VenueCoords(10.4920, -66.8860, "Av. México, Bellas Artes, Caracas"),
+    "gbg arts": VenueCoords(10.4955, -66.8495, "GBG Arts, Los Palos Grandes"),
     "carmen araujo arte": VenueCoords(
         10.4970, -66.8547, "Carmen Araujo Arte, Av. Luis Roche, Chacao"
+    ),
+
+    # ----- Venues discovered in production crawl data -----
+    "hotel jw marriott caracas": VenueCoords(
+        10.5000, -66.8800, "Av. Venezuela con Mohedano, Marriott, Caracas"
+    ),
+    "hard rock cafe caracas": VenueCoords(
+        10.5000, -66.8620, "Plazaisentium, Los Palos Grandes, Caracas"
+    ),
+    "hard rock cafe caracas caracas": VenueCoords(
+        10.5000, -66.8620, "Plazaisentium, Los Palos Grandes, Caracas"
+    ),
+    "hotel melia caracas": VenueCoords(
+        10.4900, -66.8800, "Av. Luis Roche, Meliá Caracas"
+    ),
+    "hotel hesperia wtc de valencia": VenueCoords(
+        10.1620, -68.0070, "Av. Arquímedes, Valencia, Carabobo"
+    ),
+    "monumental stadium caracas": VenueCoords(
+        10.4955, -66.8800, "Av. Simón Planas, Monumental, Caracas"
+    ),
+    "estadio monumental simon bolivar": VenueCoords(
+        10.4955, -66.8800, "Av. Simón Planas, Monumental, Caracas"
+    ),
+    "plaza de la juventud caracas": VenueCoords(
+        10.4880, -66.8800, "Plaza de la Juventud, El Calvario, Caracas"
+    ),
+    "teatro rajatabla": VenueCoords(
+        10.4945, -66.8779, "CELARG, Av. Luis Roche, Altamira"
+    ),
+    "plaza de la juventud": VenueCoords(
+        10.4880, -66.8800, "Plaza de la Juventud, El Calvario, Caracas"
+    ),
+    "cinética cultural": VenueCoords(
+        10.4880, -66.8800, "El Calvario, Caracas"
+    ),
+    "cinetica cultural": VenueCoords(
+        10.4880, -66.8800, "El Calvario, Caracas"
+    ),
+    "anfiteatro del sambil caracas": VenueCoords(
+        10.4915, -66.8536, "Sambil Caracas, Av. Libertador"
+    ),
+    "anfiteatro del sambil caracas chacao": VenueCoords(
+        10.4915, -66.8536, "Sambil Caracas, Av. Libertador"
+    ),
+    "pizpa comedy club": VenueCoords(
+        10.4970, -66.8560, "Las Mercedes, Caracas"
+    ),
+    "agenda cultural ccs": VenueCoords(
+        10.4900, -66.8800, "Alcaldía de Caracas, Plaza Caracas"
+    ),
+    "quinta esmeralda": VenueCoords(
+        10.4560, -66.8400, "Colinas de La Trinidad, Caracas"
+    ),
+    "la quinta live music bar": VenueCoords(
+        10.4560, -66.8400, "Colinas de La Trinidad, Caracas"
+    ),
+    "concha acustica de la carlota": VenueCoords(
+        10.4790, -66.8733, "Parque del Este, Bello Monte"
+    ),
+    "vista bar": VenueCoords(
+        10.4915, -66.8536, "Sambil Caracas, Av. Libertador"
+    ),
+    "secret location": VenueCoords(
+        10.4900, -66.8800, "Caracas"
+    ),
+    "salon salsa": VenueCoords(
+        10.4900, -66.8800, "Caracas"
+    ),
+    "campus de la ucab": VenueCoords(
+        10.5000, -66.8744, "UCAB, Montalbán, Caracas"
+    ),
+    "ccct": VenueCoords(
+        10.4888, -66.8619, "Ciudad Tamanaco, Av. Libertador, Caracas"
+    ),
+    "centro comercial ciudad tamanaco": VenueCoords(
+        10.4888, -66.8619, "Ciudad Tamanaco, Av. Libertador, Caracas"
+    ),
+    "cc ciudad tamanaco": VenueCoords(
+        10.4888, -66.8619, "Ciudad Tamanaco, Av. Libertador, Caracas"
+    ),
+    "hard rock cafe": VenueCoords(
+        10.5000, -66.8620, "Plazaisentium, Los Palos Grandes, Caracas"
+    ),
+    "chacao caracas": VenueCoords(
+        10.4940, -66.8555, "Chacao, Caracas"
+    ),
+    "aula magna": VenueCoords(
+        10.4905, -66.9005, "Ciudad Universitaria UCV, Caracas"
+    ),
+    "aula magna de la universidad central de venezuela": VenueCoords(
+        10.4905, -66.9005, "Ciudad Universitaria UCV, Caracas"
     ),
 }
 
@@ -432,7 +477,7 @@ def lookup_known_venue(name: str | None) -> VenueCoords | None:
     # Strip common venue prefixes.
     for prefix in ("sala ", "auditorio ", "anfiteatro ", "estadio "):
         if norm.startswith(prefix):
-            candidates.append(norm[len(prefix):])
+            candidates.append(norm[len(prefix) :])
 
     # Strip trailing "caracas" / city qualifier when nothing else matched.
     for suffix in (" caracas", " caracas venezuela", " ccs"):
