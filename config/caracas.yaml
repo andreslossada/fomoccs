@@ -1,0 +1,81 @@
+# Fomoccs Caracas — city/region configuration
+#
+# Single source of truth for every city-specific value in the frontend. The
+# `frontend` block is parsed by build.js, which injects it into the JS bundle as
+# a `window.__CITY__` global and substitutes the {{TOKEN}} placeholders in
+# src/index.html. To deploy another city, copy this file to config/<city>.yaml,
+# edit the values, and build with FOMO_CITY=<city>.
+#
+# Note: this project is NOT yet city-agnostic the way fomo.nyc is — it still
+# talks to a single FastAPI backend rather than to per-city static exports. The
+# config covers the frontend surface only; the backend pipeline has no
+# city_config.py equivalent yet.
+
+city_name: "Caracas"
+city_short: "CCS"
+metro_name: "Área metropolitana de Caracas"
+
+frontend:
+  site_name: "Fomoccs"           # <title>, logo alt, search placeholder, menu
+  domain: "Fomoccs"              # "Search {{DOMAIN}}", "About {{DOMAIN}}"
+  emoji: "🍻"                     # menu / feedback decoration
+  timezone: "America/Caracas"   # utils.js: "today" + event-time parsing
+
+  # Service worker: not shipped. The data layer reads from a rate-limited live
+  # API, so an offline cache would serve stale events with no obvious way to
+  # tell the user. Left in the config so enabling it later is a one-line change.
+  sw_enabled: false
+
+  welcome_modal: |
+    <ul>
+        <li><span class="emoji-bullet">🍻</span><span><strong>Fomoccs</strong> es un mapa interactivo de eventos en Caracas.</span></li>
+        <li><span class="emoji-bullet">🤖</span><span>Los eventos se recopilan automáticamente de muchos sitios web distintos todos los días.</span></li>
+        <li><span class="emoji-bullet">💖</span><span>Este proyecto es un trabajo de amor y siempre será gratuito y de código abierto.</span></li>
+    </ul>
+
+  map:
+    center: [10.476, -66.873]  # [lat, lng] initial map view — Greater Caracas
+    zoom: 12
+    # Teal used in the beer/foam logo; drives the dot-density layer tint.
+    dot_color: "#4b7d84"
+
+  # Roots allowed to head the public topic menu. Everything else in the tag
+  # hierarchy is either a child of one of these or an uncurated keyword.
+  #
+  # Kept deliberately small: the tag selector is only useful if the top level
+  # is a handful of browsable concepts, not the 645 raw strings the extractor
+  # has produced so far.
+  filter_roots:
+    tag:
+      - Música
+      - Teatro
+      - Arte
+      - Cine
+      - Danza
+      - Literatura
+      - Comedia
+      - Cultura
+      - Educación
+      - Salud
+      - Bienestar
+      - Deporte
+      - Gastronomía
+      - Familia
+      - Comunidad
+      - Tecnología
+      - Negocios
+      - Al aire libre
+
+  # The local DB has no tags on locations (location_tags is empty) and no
+  # neighborhood tags on events, so fomo.nyc's venue selector and neighborhood
+  # selector would render as permanently-empty popovers. They are not mounted
+  # in index.html. When locations get tagged, populate venue_selector.tags and
+  # re-add the buttons.
+  venue_selector:
+    labels: {}
+    tags: []
+
+  neighborhood_selector:
+    labels: {}
+
+  area_ids: {}

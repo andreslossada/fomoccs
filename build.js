@@ -2,14 +2,27 @@ const esbuild = require('esbuild');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const yaml = require('yaml');
 
 const SRC = path.join(__dirname, 'src');
-const DIST = path.join(__dirname, 'dist');
+// DIST_DIR lets a caller redirect the output (the smoke test builds a dev
+// bundle into a temp dir so it can introspect window.__fomo without shipping
+// that handle in production).
+const DIST = process.env.DIST_DIR
+    ? path.resolve(process.env.DIST_DIR)
+    : path.join(__dirname, 'dist');
 const FLATPICKR_JS = path.join(__dirname, 'node_modules', 'flatpickr', 'dist', 'flatpickr.js');
 const FLATPICKR_CSS = path.join(__dirname, 'node_modules', 'flatpickr', 'dist', 'flatpickr.css');
 
+// City/region config (config/<FOMO_CITY>.yaml, default "caracas"). Its
+// `frontend` block is the single source of truth for the built site: it is
+// injected as `window.__CITY__` and replaces the {{TOKEN}} placeholders in
+// index.html.
+const FOMO_CITY = process.env.FOMO_CITY || 'caracas';
+const CITY_CONFIG_PATH = path.join(__dirname, 'config', `${FOMO_CITY}.yaml`);
+
 // Directories to include in dist/ (everything the server needs)
-const ASSET_DIRS = ['data', 'images', 'fonts'];
+const ASSET_DIRS = ['data', 'images', 'fonts', 'vendor'];
 
 function copyDirSync(src, dest) {
     fs.mkdirSync(dest, { recursive: true });
@@ -24,14 +37,106 @@ function copyDirSync(src, dest) {
     }
 }
 
+/**
+ * Remove dist/ and recreate it empty.
+ *
+ * A dev build drops symlinks for the asset dirs so edits show up without a
+ * rebuild. `fs.rmSync(DIST, {recursive: true})` does not reliably clear those
+ * on Windows — a leftover link makes the next prod build fail part-way through
+ * with ENOENT, because Node resolves the link as a regular file containing the
+ * target path. Unlink any symlink explicitly before falling back to a recursive
+ * delete so switching dev -> prod always starts from a clean slate.
+ */
+function cleanDist() {
+    if (!fs.existsSync(DIST)) {
+        fs.mkdirSync(DIST, { recursive: true });
+        return;
+    }
+
+    for (const entry of fs.readdirSync(DIST, { withFileTypes: true })) {
+        if (entry.isSymbolicLink()) {
+            fs.unlinkSync(path.join(DIST, entry.name));
+        }
+    }
+
+    fs.rmSync(DIST, { recursive: true, force: true });
+    fs.mkdirSync(DIST, { recursive: true });
+}
+
+/**
+ * Load and validate the city config.
+ *
+ * A missing or incomplete config fails the build rather than shipping a site
+ * that points at the wrong coordinates or renders a selector with no roots.
+ */
+function loadCityConfig() {
+    if (!fs.existsSync(CITY_CONFIG_PATH)) {
+        throw new Error(`config/${FOMO_CITY}.yaml not found — set FOMO_CITY or add the file`);
+    }
+    const cfg = yaml.parse(fs.readFileSync(CITY_CONFIG_PATH, 'utf8')) || {};
+    const fe = cfg.frontend || {};
+    if (!fe.map || !fe.map.center) {
+        throw new Error(`config/${FOMO_CITY}.yaml is missing a frontend.map.center`);
+    }
+    if (!fe.filter_roots?.tag?.length) {
+        throw new Error(`config/${FOMO_CITY}.yaml needs a non-empty frontend.filter_roots.tag`);
+    }
+    return cfg;
+}
+
+/**
+ * Runtime values injected as a `window.__CITY__` global at the head of the JS
+ * bundle, so they exist before any IIFE module evaluates.
+ */
+function cityPrelude(fe, isDev) {
+    const jsSubset = {
+        map: {
+            center: fe.map.center,
+            zoom: fe.map.zoom,
+            dot_color: fe.map.dot_color,
+        },
+        timezone: fe.timezone,
+        cityId: FOMO_CITY,
+        areaIds: fe.area_ids || {},
+        neighborhoodSelector: fe.neighborhood_selector || {},
+        venueSelector: fe.venue_selector || {},
+        filterRoots: fe.filter_roots || {},
+        domain: fe.domain,
+        swEnabled: !isDev && fe.sw_enabled !== false,
+    };
+    return `window.__CITY__ = ${JSON.stringify(jsSubset)};\n`;
+}
+
+/**
+ * Replace {{TOKEN}} branding placeholders, then fail the build on any leftover
+ * token. A silent leftover renders as literal `{{SITE_NAME}}` in the title,
+ * which is easy to miss and hard to trace back to a config omission.
+ */
+function applyBranding(html, fe) {
+    const tokens = {
+        '{{SITE_NAME}}': fe.site_name,
+        '{{DOMAIN}}': fe.domain,
+        '{{EMOJI}}': fe.emoji,
+        '{{WELCOME_MODAL}}': fe.welcome_modal,
+    };
+    for (const [token, value] of Object.entries(tokens)) {
+        html = html.split(token).join(value);
+    }
+    const leftover = html.match(/\{\{[A-Z_]+\}\}/);
+    if (leftover) {
+        throw new Error(`Unreplaced branding token ${leftover[0]} — add it to config/${FOMO_CITY}.yaml frontend block`);
+    }
+    return html;
+}
+
 async function build(isDev) {
     const startTime = Date.now();
 
+    const cfg = loadCityConfig();
+    const frontend = cfg.frontend;
+
     // Clean dist/
-    if (fs.existsSync(DIST)) {
-        fs.rmSync(DIST, { recursive: true });
-    }
-    fs.mkdirSync(DIST, { recursive: true });
+    cleanDist();
 
     // Parse index.html to extract JS file list in load order
     const htmlSource = fs.readFileSync(path.join(SRC, 'index.html'), 'utf8');
@@ -46,11 +151,14 @@ async function build(isDev) {
         throw new Error('No JS files found in index.html');
     }
 
-    // Inject API_BASE_URL from environment (defaults to '' for relative URLs in local dev)
+    // Inject API_BASE_URL from environment (defaults to '' for relative URLs in
+    // local dev). The backend URL is Cloud Run's, resolved by the deploy script
+    // and passed in as API_BASE_URL — the frontend reads events from the live
+    // API, not from static exports.
     const apiBaseUrl = process.env.API_BASE_URL || '';
     const apiBaseUrlDecl = `var API_BASE_URL = ${JSON.stringify(apiBaseUrl)};\n`;
 
-    // Concatenate JS: config, flatpickr, then app modules in order
+    // Concatenate JS: city config, API base, flatpickr, then app modules in order
     const flatpickrJs = fs.readFileSync(FLATPICKR_JS, 'utf8');
     let originalJsSize = 0;
     const appJs = jsFiles.map(f => {
@@ -59,12 +167,21 @@ async function build(isDev) {
         originalJsSize += Buffer.byteLength(content, 'utf8');
         return content;
     }).join('\n;\n');
-    const concatenated = apiBaseUrlDecl + flatpickrJs + '\n;\n' + appJs;
+    const concatenated = cityPrelude(frontend, isDev)
+        + apiBaseUrlDecl
+        + flatpickrJs + '\n;\n' + appJs;
 
     // Minify JS in prod, pass through in dev
     let jsContent;
     if (isDev) {
-        jsContent = concatenated;
+        // Dev-only: expose the App orchestrator (and via it state.map,
+        // datePickerInstance, filtered-event arrays) on window for browser
+        // verification. App is scoped inside the DOMContentLoaded closure, so
+        // inject the handle there where it's in scope. Never in prod.
+        jsContent = concatenated.replace(
+            'App.init();',
+            'App.init();\n    if (typeof window !== "undefined") window.__fomo = App;'
+        );
     } else {
         const jsResult = await esbuild.transform(concatenated, {
             minify: true,
@@ -130,10 +247,18 @@ async function build(isDev) {
         `\n\n    <script src="${jsBundleName}"></script>\n`
     );
 
+    // Inject city branding (must run last; fails the build on any leftover token)
+    html = applyBranding(html, frontend);
+
     fs.writeFileSync(path.join(DIST, 'index.html'), html);
 
-    // Copy about.html
-    fs.copyFileSync(path.join(SRC, 'about.html'), path.join(DIST, 'about.html'));
+    // Copy static HTML pages
+    for (const page of ['about.html', 'privacy.html']) {
+        const pagePath = path.join(SRC, page);
+        if (fs.existsSync(pagePath)) {
+            fs.copyFileSync(pagePath, path.join(DIST, page));
+        }
+    }
 
     // Copy asset directories into dist/
     // Dev: symlinks (fast, live updates); Prod: full copies (self-contained)
@@ -161,6 +286,7 @@ async function build(isDev) {
         console.log(`  JS:  ${jsFiles.length} files, ${(originalJsSize / 1024).toFixed(1)} KB → ${(jsBundleSize / 1024).toFixed(1)} KB (${Math.round((1 - jsBundleSize / originalJsSize) * 100)}% smaller)`);
     }
     console.log(`  CSS: ${(cssBundleSize / 1024).toFixed(1)} KB (${cssBundleName})`);
+    console.log(`  City: ${FOMO_CITY} (${frontend.site_name})`);
     console.log(`  Output: dist/\n`);
 }
 
@@ -197,6 +323,14 @@ function watch() {
         console.log('  Changed: index.html');
         rebuild();
     });
+
+    // And the city config, so a branding change needs no manual restart
+    if (fs.existsSync(CITY_CONFIG_PATH)) {
+        fs.watch(CITY_CONFIG_PATH, () => {
+            console.log(`  Changed: config/${FOMO_CITY}.yaml`);
+            rebuild();
+        });
+    }
 
     console.log('Watching for changes... (Ctrl+C to stop)\n');
 }
