@@ -20,7 +20,7 @@ async def feed_events(
 ) -> list[dict[str, object]]:
     """Return events for the public frontend map (flat JSON array)."""
     today = date.today()
-    cutoff = today + timedelta(days=90)
+    cutoff = today + timedelta(days=180)
 
     # IDs of events with at least one occurrence between today and cutoff
     event_ids_sq = (

@@ -108,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
             RELATED_TAGS_URL: 'data/related_tags.json',
 
             START_DATE: new Date(new Date().setHours(0, 0, 0, 0)),
-            END_DATE: new Date(new Date().setHours(0, 0, 0, 0) + 90 * 24 * 60 * 60 * 1000),
+            END_DATE: new Date(new Date().setHours(0, 0, 0, 0) + 180 * 24 * 60 * 60 * 1000),
             TAG_COLOR_PALETTE_DARK: [
                 '#b03540', '#3d8578', '#c07030', '#3d70a0', '#5da035',
                 '#a04570', '#7da030', '#3d5ca8', '#b58030', '#3d7580', '#a03d78',

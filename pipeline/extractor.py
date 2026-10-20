@@ -1253,7 +1253,7 @@ Based on the website content below, extract all upcoming events. For each event,
 - name: The event name
 - location: The venue name
 - sublocation: Optional location within the venue (rooftop, 5th floor, etc.)
-- occurrences: An array of date/time objects. IMPORTANT: For recurring events (e.g., "every Wednesday" or "Jan 11, 18, 25"), list EACH specific date as a separate occurrence within the next 3 months. Each occurrence has:
+- occurrences: An array of date/time objects. IMPORTANT: For recurring events (e.g., "every Wednesday" or "Jan 11, 18, 25"), list EACH specific date as a separate occurrence within the next 6 months. Each occurrence has:
   - start_date: Date in YYYY-MM-DD format
   - start_time: Time like "4:00 PM" (optional)
   - end_date: End date if different from start (optional)
@@ -1266,7 +1266,7 @@ Based on the website content below, extract all upcoming events. For each event,
 {note_section}
 Rules:
 - Extract ALL events from the page - do not skip or summarize
-- Only include events in the Caracas area within the next 3 months
+- Only include events in the Caracas area within the next 6 months
 - Dates on Venezuelan sites often use DD/MM/YYYY format and Spanish month names.
 - Ignore unrelated event sections ("Hot Events", "Similar events", etc.)
 - For recurring events, expand ALL individual dates into the occurrences array
