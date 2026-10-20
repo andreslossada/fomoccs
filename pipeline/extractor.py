@@ -27,6 +27,7 @@ import json
 import os
 import re
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
@@ -120,11 +121,15 @@ def _build_provider_chain() -> list[ProviderConfig]:
     chain: list[ProviderConfig] = []
 
     # --- OpenCode Go (primary — subscription with generous limits) ---
+    # OpenCode Go requires an x-opencode-session header for routing.
+    # Use a stable UUID per pipeline run so all requests share one session.
     go_key = os.environ.get("OPENCODE_GO_API_KEY", "")
     if go_key:
+        go_session = os.environ.get("OPENCODE_GO_SESSION") or str(uuid.uuid4())
         go_client = openai.AsyncOpenAI(
             api_key=go_key,
             base_url="https://opencode.ai/zen/go/v1",
+            default_headers={"x-opencode-session": go_session},
         )
         chain.append(
             ProviderConfig(
