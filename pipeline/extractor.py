@@ -7,7 +7,7 @@ Uses a two-pass approach for large pages (>50 expected events):
 2. Second pass: Enrich events with descriptions, hashtags, and emoji in batches
 
 Provider chain (in priority order):
-1. OpenCode Go DeepSeek V4 Flash (primary, subscription with generous limits)
+1. OpenCode Go DeepSeek V4.1 Flash (primary, subscription with generous limits)
 2. Gemini 2.5 Flash (best quality, 5 RPM / 20 RPD free)
 3. Gemini 2.5 Flash-Lite (same key, 1,500 RPD = 75x more quota)
 4. OpenRouter free model (env-configurable, separate provider)
@@ -16,9 +16,15 @@ Provider chain (in priority order):
 
 When a provider hits 429 or 413 (TPM exceeded), we mark it exhausted and
 try the next. 429 = requests/minute or tokens/day, 413 = tokens/minute for
-Groq-style providers. Both are recoverable with a short backoff. If all
-providers fail, we raise AllProvidersExhausted and the job will be retried
-later.
+Groq-style providers. Both are recoverable with a short backoff.
+
+Transient upstream faults — 5xx responses, connection resets, and gateway
+errors like "Upstream request failed: Endpoint is unavailable." — are retried
+in place up to _MAX_ATTEMPTS times with exponential backoff before the provider
+is written off for this call. If the retries also fail, we fall through to the
+next provider. Only non-recoverable errors (401, 403, malformed request) abort
+the extraction. If all providers fail, we raise AllProvidersExhausted and the
+job will be retried later.
 """
 
 import asyncio
@@ -52,6 +58,33 @@ class AllProvidersExhausted(Exception):
     """Raised when every provider in the chain has been rate-limited."""
 
 
+# Transient upstream faults worth retrying instead of failing the whole
+# extraction. OpenCode Go's gateway returns a 5xx with a message like
+# "Upstream request failed: Endpoint is unavailable." when the vendor behind a
+# model is briefly unreachable — that clears on its own within seconds.
+_TRANSIENT_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504, 529})
+
+# Retry budget per provider call. Three attempts with exponential backoff
+# (2s → 4s → 8s) rides out short upstream blips without stalling the pipeline.
+_MAX_ATTEMPTS = 3
+_BACKOFF_BASE = 2.0
+
+
+def _is_transient(error: Exception) -> bool:
+    """Return True for retryable upstream faults (5xx, timeouts, disconnects)."""
+    if isinstance(error, (openai.APITimeoutError, openai.APIConnectionError)):
+        return True
+    status = getattr(error, "status_code", None)
+    if isinstance(status, int) and status in _TRANSIENT_STATUS:
+        return True
+    # The OpenAI SDK sometimes surfaces a 502 as a bare APIStatusError subclass
+    # with no status code; fall back to sniffing the message for gateway
+    # wording such as "Upstream request failed".
+    if status is None and "upstream request failed" in str(error).lower():
+        return True
+    return False
+
+
 @dataclass
 class ProviderConfig:
     """A single LLM provider in the fallback chain.
@@ -69,6 +102,10 @@ class ProviderConfig:
     input_price_per_token: float = 0.0
     output_price_per_token: float = 0.0
     enabled: bool = True
+    # When True, each request carries a fresh x-opencode-session UUID. Keeps a
+    # single failed call from poisoning the routing session of every other
+    # request queued behind it in the pipeline's worker pool.
+    session_per_request: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_call: float = 0.0
     exhausted_until: float = 0.0
@@ -121,25 +158,26 @@ def _build_provider_chain() -> list[ProviderConfig]:
     chain: list[ProviderConfig] = []
 
     # --- OpenCode Go (primary — subscription with generous limits) ---
-    # OpenCode Go requires an x-opencode-session header for routing.
-    # Use a stable UUID per pipeline run so all requests share one session.
+    # OpenCode Go requires an x-opencode-session header for routing. The model
+    # name must match the catalog exactly (GET /zen/go/v1/models), otherwise the
+    # gateway answers "Upstream request failed: Model is unavailable."
     go_key = os.environ.get("OPENCODE_GO_API_KEY", "")
     if go_key:
-        go_session = os.environ.get("OPENCODE_GO_SESSION") or str(uuid.uuid4())
+        go_model = os.environ.get("OPENCODE_GO_MODEL", "deepseek-v4.1-flash")
         go_client = openai.AsyncOpenAI(
             api_key=go_key,
             base_url="https://opencode.ai/zen/go/v1",
-            default_headers={"x-opencode-session": go_session},
         )
         chain.append(
             ProviderConfig(
                 label="opencode-go",
                 client=go_client,
-                model="deepseek-v4-flash",
+                model=go_model,
                 rpm=100,
                 delay=0.6,
                 input_price_per_token=0.14 / 1_000_000,
                 output_price_per_token=0.28 / 1_000_000,
+                session_per_request=True,
             )
         )
 
@@ -280,20 +318,46 @@ async def _call_with_fallback(
             continue
         try:
             async with provider.lock:
-                elapsed = time.time() - provider.last_call
-                if provider.last_call > 0 and elapsed < provider.delay:
-                    await asyncio.sleep(provider.delay - elapsed)
-                kwargs: dict[str, Any] = {
-                    "model": provider.model,
-                    "messages": messages,
-                }
-                if response_format is not None:
-                    kwargs["response_format"] = response_format
-                coro = provider.client.chat.completions.create(**kwargs)
-                response = await asyncio.wait_for(coro, timeout=timeout)
-                provider.last_call = time.time()
-                provider.total_calls += 1
-                return response, provider
+                for attempt in range(1, _MAX_ATTEMPTS + 1):
+                    elapsed = time.time() - provider.last_call
+                    if provider.last_call > 0 and elapsed < provider.delay:
+                        await asyncio.sleep(provider.delay - elapsed)
+                    kwargs: dict[str, Any] = {
+                        "model": provider.model,
+                        "messages": messages,
+                    }
+                    if response_format is not None:
+                        kwargs["response_format"] = response_format
+                    if provider.session_per_request:
+                        kwargs["extra_headers"] = {
+                            "x-opencode-session": str(uuid.uuid4())
+                        }
+                    try:
+                        coro = provider.client.chat.completions.create(**kwargs)
+                        response = await asyncio.wait_for(coro, timeout=timeout)
+                    except Exception as exc:
+                        # Transient upstream faults (5xx, connection resets,
+                        # "Upstream request failed: Endpoint is unavailable")
+                        # clear on their own — back off and try the same
+                        # provider again before giving up on the source.
+                        if attempt < _MAX_ATTEMPTS and _is_transient(exc):
+                            backoff = _BACKOFF_BASE * (2 ** (attempt - 1))
+                            print(
+                                f"    - {provider.label} transient error "
+                                f"({type(exc).__name__}), retrying in "
+                                f"{backoff:.0f}s "
+                                f"(attempt {attempt}/{_MAX_ATTEMPTS}, {label})"
+                            )
+                            provider.total_errors += 1
+                            await asyncio.sleep(backoff)
+                            continue
+                        raise
+                    provider.last_call = time.time()
+                    provider.total_calls += 1
+                    return response, provider
+            # All attempts exhausted for this provider — move to the next one.
+            provider.total_errors += 1
+            continue
         except openai.RateLimitError as e:
             cooldown = _detect_cooldown_seconds(e)
             provider.exhausted_until = time.time() + cooldown
@@ -333,9 +397,18 @@ async def _call_with_fallback(
             provider.total_errors += 1
             raise
         except openai.APIStatusError as e:
-            # RateLimitError (429) and BadRequestError with 413 are caught by
-            # the more specific handlers above. Anything else here is a real
-            # error (auth, bad prompt, server fault) — propagate.
+            # 5xx from the gateway's upstream vendor is a provider outage, not
+            # a bad request — fall through to the next provider instead of
+            # failing the whole extraction. Anything else (401, 403) is real.
+            status = getattr(e, "status_code", None)
+            if isinstance(status, int) and 500 <= status < 600:
+                provider.total_errors += 1
+                print(
+                    f"    - {provider.label} {status} → upstream down, "
+                    f"falling through (attempt {label})"
+                )
+                last_error = e
+                continue
             provider.total_errors += 1
             raise
         except (openai.APITimeoutError, asyncio.TimeoutError) as e:
