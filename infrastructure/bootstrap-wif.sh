@@ -21,7 +21,19 @@ POOL_ID="fomoccs-github-pool"
 PROVIDER_ID="github"
 SA_NAME="fomoccs-cicd"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-REPO="Anedu91/fomoccs"
+
+# The OIDC provider's attribute-condition and the principalSet below both pin
+# access to one repository. Derive it from the checkout so the binding cannot
+# silently point at a fork or a renamed repo — a mismatch here surfaces only
+# as an opaque "could not fetch authentication" at deploy time.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -z "${REPO:-}" ]]; then
+  REPO="$(git -C "${SCRIPT_DIR}/.." remote get-url origin 2>/dev/null | sed -E 's#^.*github\.com[:/]+##; s#\.git$##')"
+fi
+if [[ -z "${REPO}" || "${REPO}" != */* ]]; then
+  echo "Error: could not determine the GitHub repository (set REPO=owner/name)." >&2
+  exit 1
+fi
 
 echo "=== Enabling required APIs ==="
 gcloud services enable iam.googleapis.com --project="${PROJECT_ID}" --quiet
@@ -90,9 +102,19 @@ echo ""
 echo "Service Account:"
 echo "  ${SA_EMAIL}"
 echo ""
-echo "Add these GitHub Secrets (Settings → Secrets → Actions):"
-echo "  GCP_PROJECT_ID = ${PROJECT_ID}"
-echo "  GCP_WORKLOAD_IDENTITY_PROVIDER = projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
+echo "Add these as GitHub Actions *variables* (not secrets) on ${REPO}:"
+echo "  Settings -> Secrets and variables -> Actions -> Variables tab"
+echo ""
+echo "    GCP_PROJECT_ID  = ${PROJECT_ID}"
+echo "    WIF_PROVIDER    = projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
+echo "    DEPLOYER_SA     = ${SA_EMAIL}"
+echo ""
+echo "The workflow reads those exact names. Storing them as secrets, or under"
+echo "different names, leaves the auth step with no provider and it fails with"
+echo "\"must specify exactly one of workload_identity_provider or credentials_json\"."
+echo ""
+echo "Also set the REDIS_URL *secret* if the pipeline/worker jobs should deploy:"
+echo "  gh secret set REDIS_URL --repo ${REPO}"
 echo ""
 echo "After 'terraform apply' creates the frontend bucket, run:"
 echo "  gsutil iam ch \"serviceAccount:${SA_EMAIL}:roles/storage.objectAdmin\" \"gs://fomoccs-frontend\""
