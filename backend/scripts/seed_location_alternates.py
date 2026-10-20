@@ -1,17 +1,32 @@
 """Seed location alternate names to help location resolution dedup.
 
 Usage:  uv run python backend/scripts/seed_location_alternates.py [--apply]
+
+Uses psycopg2 (sync) rather than SQLAlchemy async, because the Supabase
+pooler gives asyncpg a ``no tenant identifier`` error when no
+``external_id`` or ``snake_hostname`` is provided. Sync access through the
+pooler just works with the standard env vars.
+
+Run from the ``backend/`` directory.
 """
 
 from __future__ import annotations
 
-import asyncio
+import os
 import sys
+from pathlib import Path
 
-from sqlalchemy import select, text
+import psycopg2
+from dotenv import load_dotenv
 
-from api.database import AsyncSessionLocal
-from api.models.location import Location, LocationAlternateName
+
+def _dsn() -> str:
+    return (
+        f"postgresql://{os.environ['DB_USER']}:{os.environ['DB_PASS']}"
+        f"@{os.environ['DB_HOST']}:{os.environ.get('DB_PORT', '5432')}"
+        f"/{os.environ['DB_NAME']}"
+    )
+
 
 KNOWN_ALIASES: dict[str, list[str]] = {
     "Centro Cultural de Arte Moderno": [
@@ -34,77 +49,86 @@ KNOWN_ALIASES: dict[str, list[str]] = {
         "Salón Turmalina - Hotel Eurobuilding",
         "Hotel Eurobuilding Caracas",
     ],
-    "Centro Cultural Chacao": ["CCCH", "Centro Cultural de Chacao"],
+    "Centro Cultural Chacao": [
+        "CCCH",
+        "Centro Cultural de Chacao",
+        "Centro Cultural Chacao - Sala Experimental",
+        "Centro Cultural Chacao - Sala Teatro",
+    ],
     "Hacienda El Arroyo": ["El Arroyo", "Hacienda Arroyo"],
     "Teatro Alberto de Paz y Mateos": ["Teatro Alberto de Paz"],
-    "Teatro Chacao": ["Teatro Municipal de Chacao"],
-    "Universidad Central de Venezuela": ["UCV", "Ciudad Universitaria"],
-    "Universidad Católica Andrés Bello": ["UCAB"],
-    "Universidad Metropolitana": ["UNIMET"],
-    "Universidad Simón Bolívar": ["USB"],
+    "Universidad Central de Venezuela - Sala Conciertos": [
+        "UCV",
+        "Ciudad Universitaria",
+        "Universidad Central de Venezuela",
+        "Aula Magna UCV",
+    ],
+    "Universidad Católica Andrés Bello (UCAB)": [
+        "UCAB",
+        "Universidad Catolica Andres Bello",
+        "UCAB campus",
+    ],
+    "Universidad Metropolitana (UNIMET)": ["UNIMET"],
+    # Universidad Simón Bolívar stored under USB Sartenejas alias
+    "USB Sartenejas": ["USB", "Universidad Simón Bolívar", "Universidad Simon Bolivar"],
 }
 
 
-async def seed(dry_run: bool = True) -> None:
-    session = AsyncSessionLocal()
-    try:
-        inserted = 0
+def seed(dry_run: bool = True) -> None:
+    conn = psycopg2.connect(_dsn())
+    conn.autocommit = False
+    cur = conn.cursor()
+    inserted = 0
 
-        for canonical, aliases in KNOWN_ALIASES.items():
-            # Find canonical location (try exact match first, then ILIKE)
-            result = await session.execute(
-                select(Location).where(
-                    Location.name == canonical,
-                    Location.deleted_at.is_(None),
-                )
+    for canonical, aliases in KNOWN_ALIASES.items():
+        cur.execute(
+            "SELECT id FROM locations WHERE name = %s AND deleted_at IS NULL",
+            (canonical,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            cur.execute(
+                "SELECT id FROM locations WHERE LOWER(name) = LOWER(%s) AND deleted_at IS NULL",
+                (canonical,),
             )
-            location = result.scalar_one_or_none()
-            if location is None:
-                # Fallback: case-insensitive match
-                result = await session.execute(
-                    select(Location).where(
-                        Location.name.ilike(canonical),
-                        Location.deleted_at.is_(None),
-                    )
-                )
-                location = result.scalar_one_or_none()
-            if location is None:
-                print(f"  SKIP: canonical location '{canonical}' not found")
+            row = cur.fetchone()
+        if row is None:
+            print(f"  SKIP: canonical location '{canonical}' not found")
+            continue
+        location_id = row[0]
+
+        for alias in aliases:
+            cur.execute(
+                """
+                SELECT 1 FROM location_alternate_names
+                WHERE location_id = %s AND LOWER(alternate_name) = LOWER(%s)
+                """,
+                (location_id, alias),
+            )
+            if cur.fetchone() is not None:
                 continue
 
-            for alias in aliases:
-                existing = await session.scalar(
-                    select(text("1"))
-                    .where(text("""
-                        EXISTS (
-                            SELECT 1 FROM location_alternate_names
-                            WHERE location_id = :lid AND alternate_name = :name
-                        )
-                    """))
-                    .params(lid=location.id, name=alias)
+            if not dry_run:
+                cur.execute(
+                    "INSERT INTO location_alternate_names (location_id, alternate_name) VALUES (%s, %s)",
+                    (location_id, alias),
                 )
-                if existing:
-                    continue
+            inserted += 1
+            print(f"  + [{location_id}] {canonical} <- '{alias}'")
 
-                if not dry_run:
-                    alt = LocationAlternateName(
-                        location_id=location.id,
-                        alternate_name=alias,
-                    )
-                    session.add(alt)
-                inserted += 1
-                print(f"  + [{location.id}] {canonical} <- '{alias}'")
+    if not dry_run:
+        conn.commit()
+        print(f"\nCommitted {inserted} alternate names.")
+    else:
+        conn.rollback()
+        print(f"\nDRY RUN — would insert {inserted} alternate names.")
+        print("Run with --apply to commit.")
 
-        if not dry_run:
-            await session.commit()
-            print(f"\nCommitted {inserted} alternate names.")
-        else:
-            print(f"\nDRY RUN — would insert {inserted} alternate names.")
-            print("Run with --apply to commit.")
-    finally:
-        await session.close()
+    cur.close()
+    conn.close()
 
 
 if __name__ == "__main__":
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
     dry = "--apply" not in sys.argv
-    asyncio.run(seed(dry_run=dry))
+    seed(dry_run=dry)
