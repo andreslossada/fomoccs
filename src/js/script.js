@@ -313,6 +313,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 FilterPanelUI.selectTags(urlParams.tags, (tag) => TagColorManager.assignColorToTag(tag));
             }
 
+            // A shared link may carry a search term. Seed the box and run it
+            // after the map is up, so the first render already shows the
+            // shared view instead of flashing the unfiltered map first.
+            if (urlParams.search) {
+                this.elements.omniSearchInput.value = urlParams.search;
+                this._pendingSearchTerm = urlParams.search;
+            }
+
             UIManager.initDatePicker(this.elements, this.config, this.state, {
                 onDatePickerClose: (selectedDates) => {
                     const [newStart, newEnd] = selectedDates;
@@ -446,6 +454,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 await this._filterAndDisplayEventsYielding();
                 this._setLoadingProgress(100);
                 this._showMainUI();
+
+                // A search term from a shared link is applied here rather than
+                // during _setupUIComponents, so the first paint already shows
+                // the shared view instead of the unfiltered map.
+                if (this._pendingSearchTerm) {
+                    const term = this._pendingSearchTerm;
+                    this._pendingSearchTerm = null;
+                    this.performSearch(term);
+                }
 
                 // Mark initial load as complete
                 this.state.isInitialLoad = false;
@@ -1331,6 +1348,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 params.formats = FormatSelector.selection();
+                params.search = this._getCurrentSearchTerm();
 
                 // Generate the shareable URL using URLParams module
                 const shareUrl = URLParams.generateShareUrl(params);

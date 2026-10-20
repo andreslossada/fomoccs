@@ -40,9 +40,18 @@ const URLParams = (() => {
     function parse() {
         const urlParams = new URLSearchParams(window.location.search);
         const params = {};
-        // Structured links are decoded by FomoQueries; retain the URL until then.
-        if (urlParams.has("qv") || urlParams.has("q")) return params;
+        // A `qv` link carries a structured query (the JSON envelope the query
+        // layer used to encode). That layer is not part of this deployment, so
+        // such a link cannot be honoured — and returning early would silently
+        // discard the date range, coordinates and tag filters packed into the
+        // same URL. Read those, and ignore only the unreadable part.
+        //
+        // `q` is a plain search term and still works: it seeds the omni-search
+        // box like any other typed query.
         const warnings = [];
+
+        const term = urlParams.get('q');
+        if (term) params.search = term;
 
         const lat = readNumber(urlParams, warnings, 'lat', 'Latitude', VALIDATION.LAT_MIN, VALIDATION.LAT_MAX, parseFloat);
         if (lat !== undefined) params.lat = lat;
@@ -270,7 +279,12 @@ const URLParams = (() => {
         }
 
         if (Array.isArray(params.formats)) urlParams.set('formats', params.formats.join(','));
-        if (Array.isArray(params.neighborhoods)) urlParams.set('neighborhoods', JSON.stringify(params.neighborhoods));
+
+        // The search term travels as `q` and is read back by parse(). Without
+        // it, a shared link silently opens on the unfiltered map, which reads
+        // as "the link is broken" rather than "I left the search off".
+        if (params.search) urlParams.set('q', params.search);
+
         return `${baseUrl}?${urlParams.toString()}`;
     }
 
