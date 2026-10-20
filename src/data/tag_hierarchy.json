@@ -1,0 +1,1443 @@
+{
+ "tags": [
+  {
+   "name": "Música",
+   "parents": [],
+   "emoji": "🎵",
+   "quickFilter": true,
+   "order": 1,
+   "aliases": [
+    "DomingosDeMúsica",
+    "EventosDeMusica",
+    "FestivalDeMusica",
+    "FestivalMusica",
+    "MujerYMusica",
+    "MusicaAfrocaribeña",
+    "MusicaClassica",
+    "MusicaContemporanea",
+    "MusicaCristiana",
+    "MusicaDeCamara",
+    "MusicaEmergente",
+    "MusicaEnVivo",
+    "MusicaNavideña",
+    "MusicaPopular",
+    "MusicaRock",
+    "MusicaTropical",
+    "MusicaUnderground",
+    "MusicaVariada",
+    "MúsicaDeBaile",
+    "MúsicaDeCámara",
+    "MúsicaEn Vivo",
+    "MúsicaEnDirecto",
+    "MúsicaEnVivo",
+    "MúsicaEnVivoCCAM",
+    "MúsicaFemenina",
+    "MúsicaPopular",
+    "MúsicaTropical",
+    "MúsicaUnder",
+    "MúsicaViva",
+    "NocheDeMúsica",
+    "NuevaMúsica"
+   ]
+  },
+  {
+   "name": "Teatro",
+   "parents": [],
+   "emoji": "🎭",
+   "quickFilter": true,
+   "order": 2,
+   "aliases": [
+    "ObraDeTeatro",
+    "TeatroTeresaCarreño"
+   ]
+  },
+  {
+   "name": "Arte",
+   "parents": [],
+   "emoji": "🎨",
+   "quickFilter": true,
+   "order": 3,
+   "aliases": [
+    "ArteCinetic",
+    "ArteContemporaneo",
+    "ArteCultural",
+    "ArteExperimental",
+    "ArteGrafico",
+    "ArteGráfico",
+    "ArteIndigena",
+    "ArteMusical",
+    "ArteMúsica",
+    "ArteVenezolano",
+    "ArteYCultura",
+    "ArteYcultura",
+    "GaleriaDeArte",
+    "SalonDeArte"
+   ]
+  },
+  {
+   "name": "Cine",
+   "parents": [],
+   "emoji": "🎬",
+   "quickFilter": true,
+   "order": 4,
+   "aliases": [
+    "CineVenezuela",
+    "EstrenoCine",
+    "FestivalCine",
+    "FestivalDeCine"
+   ]
+  },
+  {
+   "name": "Danza",
+   "parents": [],
+   "emoji": "💃",
+   "quickFilter": false,
+   "order": 5,
+   "aliases": [
+    "DanzaClasica",
+    "FestivalDanza"
+   ]
+  },
+  {
+   "name": "Literatura",
+   "parents": [],
+   "emoji": "📚",
+   "quickFilter": false,
+   "order": 6
+  },
+  {
+   "name": "Comedia",
+   "parents": [],
+   "emoji": "😂",
+   "quickFilter": false,
+   "order": 7,
+   "aliases": [
+    "ComediaEnVivo",
+    "ComediaMusical",
+    "ComediaRapida",
+    "ComediaVenezolana",
+    "JuevesDeComedia",
+    "TerrorComedia"
+   ]
+  },
+  {
+   "name": "Cultura",
+   "parents": [],
+   "emoji": "🏛️",
+   "quickFilter": true,
+   "order": 8,
+   "aliases": [
+    "CulturaAlternativa",
+    "CulturaCCS",
+    "CulturaCaracas",
+    "CulturaCinematográfica",
+    "CulturaClásica",
+    "CulturaFrancia",
+    "CulturaGastronomica",
+    "CulturaItaliana",
+    "CulturaJuvenil",
+    "CulturaLírica",
+    "CulturaMusica",
+    "CulturaMusical",
+    "CulturaPop",
+    "CulturaPopular",
+    "CulturaUnderground",
+    "CulturaUrbana",
+    "CulturaVenezolana",
+    "CulturaVisual"
+   ]
+  },
+  {
+   "name": "Educación",
+   "parents": [],
+   "emoji": "🎓",
+   "quickFilter": true,
+   "order": 9,
+   "aliases": [
+    "EducacionArtistica",
+    "EducacionMusical"
+   ]
+  },
+  {
+   "name": "Salud",
+   "parents": [],
+   "emoji": "🩺",
+   "quickFilter": false,
+   "order": 10
+  },
+  {
+   "name": "Bienestar",
+   "parents": [],
+   "emoji": "🧘",
+   "quickFilter": false,
+   "order": 11
+  },
+  {
+   "name": "Deporte",
+   "parents": [],
+   "emoji": "⚽",
+   "quickFilter": false,
+   "order": 12,
+   "aliases": [
+    "DeporteMotor"
+   ]
+  },
+  {
+   "name": "Gastronomía",
+   "parents": [],
+   "emoji": "🍽️",
+   "quickFilter": false,
+   "order": 13
+  },
+  {
+   "name": "Familia",
+   "parents": [],
+   "emoji": "👪",
+   "quickFilter": false,
+   "order": 14
+  },
+  {
+   "name": "Comunidad",
+   "parents": [],
+   "emoji": "🤝",
+   "quickFilter": true,
+   "order": 15
+  },
+  {
+   "name": "Tecnología",
+   "parents": [],
+   "emoji": "💻",
+   "quickFilter": false,
+   "order": 16
+  },
+  {
+   "name": "Negocios",
+   "parents": [],
+   "emoji": "💼",
+   "quickFilter": false,
+   "order": 17
+  },
+  {
+   "name": "Al aire libre",
+   "parents": [],
+   "emoji": "🌳",
+   "quickFilter": false,
+   "order": 18
+  },
+  {
+   "name": "Naturaleza",
+   "parents": [
+    "Al aire libre"
+   ],
+   "emoji": "🌿",
+   "aliases": [
+    "AireLibre"
+   ]
+  },
+  {
+   "name": "Artes visuales",
+   "parents": [
+    "Arte"
+   ],
+   "emoji": "🎨",
+   "aliases": [
+    "Acuarela",
+    "ArteVisual",
+    "ArtesPlasticas",
+    "Ceramica",
+    "Collage",
+    "Escultura",
+    "Grabado",
+    "Ilustracion",
+    "Pintura"
+   ]
+  },
+  {
+   "name": "Creatividad",
+   "parents": [
+    "Arte"
+   ],
+   "emoji": "✨",
+   "aliases": [
+    "Arte Underground",
+    "ClasesDeArte",
+    "Manualidades"
+   ]
+  },
+  {
+   "name": "Digital",
+   "parents": [
+    "Arte"
+   ],
+   "emoji": "💻",
+   "aliases": [
+    "ArteAudiovisual",
+    "ArteDigital",
+    "ArteInteractivo"
+   ]
+  },
+  {
+   "name": "Exposición",
+   "parents": [
+    "Arte"
+   ],
+   "emoji": "🖼️",
+   "aliases": [
+    "Coleccion",
+    "ExposicionDeArte",
+    "ExposicionIndividual",
+    "ExposicionInteractiva",
+    "Feria",
+    "FeriaComercial",
+    "Inauguracion",
+    "MuestraArtistica",
+    "MuestraDeArte"
+   ]
+  },
+  {
+   "name": "Fotografía",
+   "parents": [
+    "Arte"
+   ],
+   "emoji": "📷",
+   "aliases": []
+  },
+  {
+   "name": "Sonoro",
+   "parents": [
+    "Arte"
+   ],
+   "emoji": "🎙️",
+   "aliases": [
+    "ArteSonoro",
+    "Sonido",
+    "SonidoEnVivo",
+    "SonidoExperimental"
+   ]
+  },
+  {
+   "name": "Urbano",
+   "parents": [
+    "Arte"
+   ],
+   "emoji": "🎨",
+   "aliases": [
+    "ArteUrbano"
+   ]
+  },
+  {
+   "name": "Ejercicio",
+   "parents": [
+    "Bienestar"
+   ],
+   "emoji": "🏃",
+   "aliases": [
+    "Fitness"
+   ]
+  },
+  {
+   "name": "Meditación",
+   "parents": [
+    "Bienestar"
+   ],
+   "emoji": "🕉️",
+   "aliases": []
+  },
+  {
+   "name": "Yoga",
+   "parents": [
+    "Bienestar"
+   ],
+   "emoji": "🧘",
+   "aliases": [
+    "ClasesDeYoga"
+   ]
+  },
+  {
+   "name": "Ciclo",
+   "parents": [
+    "Cine"
+   ],
+   "emoji": "🎞️",
+   "aliases": [
+    "CicloDeCamara",
+    "CicloDeCine"
+   ]
+  },
+  {
+   "name": "Clásico",
+   "parents": [
+    "Cine"
+   ],
+   "emoji": "🎞️",
+   "aliases": []
+  },
+  {
+   "name": "Francés",
+   "parents": [
+    "Cine"
+   ],
+   "emoji": "🥖",
+   "aliases": [
+    "CineFrances",
+    "CineFrancés"
+   ]
+  },
+  {
+   "name": "Independiente",
+   "parents": [
+    "Cine"
+   ],
+   "emoji": "🎥",
+   "aliases": [
+    "CineIndependiente",
+    "CineVenezolano",
+    "Cortometraje",
+    "Peliculas",
+    "Películas"
+   ]
+  },
+  {
+   "name": "Proyección",
+   "parents": [
+    "Cine"
+   ],
+   "emoji": "📽️",
+   "aliases": [
+    "CinematecaNacional"
+   ]
+  },
+  {
+   "name": "Stand-up",
+   "parents": [
+    "Comedia"
+   ],
+   "emoji": "🎙️",
+   "aliases": [
+    "Monologo",
+    "StandUpComedy"
+   ]
+  },
+  {
+   "name": "Encuentros",
+   "parents": [
+    "Comunidad"
+   ],
+   "emoji": "🤝",
+   "aliases": [
+    "AsociacionCulturalHumboldt",
+    "Convocatoria",
+    "Encuentro"
+   ]
+  },
+  {
+   "name": "Voluntariado",
+   "parents": [
+    "Comunidad"
+   ],
+   "emoji": "💪",
+   "aliases": [
+    "Solidaridad"
+   ]
+  },
+  {
+   "name": "Fútbol",
+   "parents": [
+    "Cultura"
+   ],
+   "emoji": "⚽",
+   "aliases": [
+    "GiraMundial",
+    "Mundial2026"
+   ]
+  },
+  {
+   "name": "Historia",
+   "parents": [
+    "Cultura"
+   ],
+   "emoji": "📜",
+   "aliases": [
+    "MemoriaVisual"
+   ]
+  },
+  {
+   "name": "Identidad",
+   "parents": [
+    "Cultura"
+   ],
+   "emoji": "🇻🇪",
+   "aliases": [
+    "Ciudadania",
+    "ConcienciaSocial",
+    "Empoderamiento"
+   ]
+  },
+  {
+   "name": "Patrimonio",
+   "parents": [
+    "Cultura"
+   ],
+   "emoji": "🏛️",
+   "aliases": [
+    "CocinaPatrimonial",
+    "PatrimonioCultural",
+    "RutaCultural"
+   ]
+  },
+  {
+   "name": "Ballet",
+   "parents": [
+    "Danza"
+   ],
+   "emoji": "🩰",
+   "aliases": []
+  },
+  {
+   "name": "Tradicional",
+   "parents": [
+    "Danza"
+   ],
+   "emoji": "🕺",
+   "aliases": [
+    "TemporadaDanza"
+   ]
+  },
+  {
+   "name": "Competencia",
+   "parents": [
+    "Deporte"
+   ],
+   "emoji": "🏆",
+   "aliases": [
+    "Automovilismo",
+    "CampeonatoBaristas",
+    "CompetenciaMusical",
+    "CompetenciaNacional"
+   ]
+  },
+  {
+   "name": "Cursos",
+   "parents": [
+    "Educación"
+   ],
+   "emoji": "📚",
+   "aliases": [
+    "Certificacion",
+    "Clases",
+    "CursosDeIdiomas",
+    "Inscripciones",
+    "Taller",
+    "TallerCreativo",
+    "TallerDeArte",
+    "TallerDePintura",
+    "Talleres",
+    "TalleresCreativos"
+   ]
+  },
+  {
+   "name": "Idiomas",
+   "parents": [
+    "Educación"
+   ],
+   "emoji": "🗣️",
+   "aliases": [
+    "CertificacionIdiomas",
+    "IdiomaItaliano"
+   ]
+  },
+  {
+   "name": "Investigación",
+   "parents": [
+    "Educación"
+   ],
+   "emoji": "🔬",
+   "aliases": [
+    "Analisis",
+    "Conversatorio"
+   ]
+  },
+  {
+   "name": "Infantil",
+   "parents": [
+    "Familia"
+   ],
+   "emoji": "🧸",
+   "aliases": [
+    "EntretenimientoFamiliar",
+    "Niños",
+    "TeatroInfantil"
+   ]
+  },
+  {
+   "name": "Café",
+   "parents": [
+    "Gastronomía"
+   ],
+   "emoji": "☕",
+   "aliases": [
+    "CafeVenezuela"
+   ]
+  },
+  {
+   "name": "Cocina",
+   "parents": [
+    "Gastronomía"
+   ],
+   "emoji": "🍳",
+   "aliases": [
+    "Dulces",
+    "Postres",
+    "Sabores"
+   ]
+  },
+  {
+   "name": "Escritura",
+   "parents": [
+    "Literatura"
+   ],
+   "emoji": "✍️",
+   "aliases": [
+    "NocheDePoesia",
+    "Poesia"
+   ]
+  },
+  {
+   "name": "Lectura",
+   "parents": [
+    "Literatura"
+   ],
+   "emoji": "📖",
+   "aliases": [
+    "Librerias"
+   ]
+  },
+  {
+   "name": "Alternativa",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🎸",
+   "aliases": [
+    "Indie",
+    "MusicaAlternativa",
+    "MúsicaAlternativa",
+    "NocheDeRock",
+    "OperaRock",
+    "Rock",
+    "RockRap",
+    "RockVenezolano",
+    "RockYMas"
+   ]
+  },
+  {
+   "name": "Clásica",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🎻",
+   "aliases": [
+    "MusicaClasica",
+    "MúsicaClásica",
+    "ObraClasica",
+    "OrquestaSinfonica",
+    "OrquestaSinfónica",
+    "SinFonica",
+    "Sinfonica",
+    "Sinfonico",
+    "Sinfónico"
+   ]
+  },
+  {
+   "name": "Coral",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🎶",
+   "aliases": [
+    "CantoCoral",
+    "Coros",
+    "MusicaCoral",
+    "MúsicaCoral"
+   ]
+  },
+  {
+   "name": "Electrónica",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🎛️",
+   "aliases": [
+    "ConciertoDeMúsicaElectrónica",
+    "DJ",
+    "DJSet",
+    "DJSets",
+    "DjSet",
+    "ElectrónicaEnVivo",
+    "MusicaElectronica",
+    "MúsicaElectronica",
+    "MúsicaElectrónica"
+   ]
+  },
+  {
+   "name": "Flamenco",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🔥",
+   "aliases": []
+  },
+  {
+   "name": "Folklore",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🥁",
+   "aliases": [
+    "Folk"
+   ]
+  },
+  {
+   "name": "Instrumental",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🎻",
+   "aliases": [
+    "Camara",
+    "ConciertoCamara",
+    "ConciertoDeCamara",
+    "ConciertoDeCámara",
+    "ConciertosDeCámara",
+    "Cámara",
+    "Percusion",
+    "Piano",
+    "RecitalDeCamara"
+   ]
+  },
+  {
+   "name": "Jazz",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🎷",
+   "aliases": [
+    "DiaInternacionalDelJazz",
+    "JazzLatino"
+   ]
+  },
+  {
+   "name": "Latina",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🌴",
+   "aliases": [
+    "MusicaLatina",
+    "Música Latina",
+    "MúsicaLatina",
+    "RitmoLatino",
+    "RitmoTropical",
+    "Tropical"
+   ]
+  },
+  {
+   "name": "Orquestal",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🎼",
+   "aliases": [
+    "Banda",
+    "BandaSinfonica",
+    "MúsicaOrquestal",
+    "Orquesta"
+   ]
+  },
+  {
+   "name": "Pop",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🎧",
+   "aliases": [
+    "BaladaPop",
+    "ConciertoDePop",
+    "PopRock"
+   ]
+  },
+  {
+   "name": "Reggae",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🌴",
+   "aliases": [
+    "SunshineReggae"
+   ]
+  },
+  {
+   "name": "Salsa",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🕺",
+   "aliases": [
+    "Bachata",
+    "Bolero",
+    "Boleros",
+    "Mambo",
+    "NocheDeSalsa",
+    "SalsaUrbana",
+    "SalsaVenezolana"
+   ]
+  },
+  {
+   "name": "Urbana",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🎤",
+   "aliases": [
+    "Freestyle",
+    "HipHop",
+    "MusicaUrbana",
+    "MúsicaUrbana",
+    "NocheUrbana",
+    "PopLatino",
+    "PopUrbano",
+    "Rap",
+    "Reggaeton"
+   ]
+  },
+  {
+   "name": "Venezolana",
+   "parents": [
+    "Música"
+   ],
+   "emoji": "🇻🇪",
+   "aliases": [
+    "ArtistaVenezolana",
+    "ArtistaVenezolano",
+    "ArtistasPlasticos",
+    "ArtistasVenezolanos",
+    "MusicaVenezolana",
+    "MúsicaVenezolana"
+   ]
+  },
+  {
+   "name": "Economía",
+   "parents": [
+    "Negocios"
+   ],
+   "emoji": "💹",
+   "aliases": [
+    "Corporativo",
+    "Emprendimiento"
+   ]
+  },
+  {
+   "name": "Networking",
+   "parents": [
+    "Negocios"
+   ],
+   "emoji": "🤝",
+   "aliases": []
+  },
+  {
+   "name": "Salud pública",
+   "parents": [
+    "Salud"
+   ],
+   "emoji": "🏥",
+   "aliases": [
+    "Medicina"
+   ]
+  },
+  {
+   "name": "Drama",
+   "parents": [
+    "Teatro"
+   ],
+   "emoji": "🎭",
+   "aliases": [
+    "ObraPostuma",
+    "ObraTeatral"
+   ]
+  },
+  {
+   "name": "Experimental",
+   "parents": [
+    "Teatro"
+   ],
+   "emoji": "🌀",
+   "aliases": [
+    "ArteEnEscena",
+    "ArteEscenico",
+    "ArteEscénico",
+    "ArtesEscenicas",
+    "ArtesEscénicas",
+    "Fusion",
+    "FusionMusical",
+    "Grotowski",
+    "JerzyGrotowski",
+    "LaSalaExperimental",
+    "MusicaExperimental",
+    "MúsicaExperimental",
+    "RitmoYFusión"
+   ]
+  },
+  {
+   "name": "Formación",
+   "parents": [
+    "Teatro"
+   ],
+   "emoji": "🎓",
+   "aliases": [
+    "CatedraTeatral",
+    "ClaseMagistral",
+    "FormacionArtistica",
+    "FormacionTeatral",
+    "InvestigacionTeatral"
+   ]
+  },
+  {
+   "name": "Musical",
+   "parents": [
+    "Teatro"
+   ],
+   "emoji": "🎶",
+   "aliases": [
+    "ComposicionMusical",
+    "EspectáculoMusical",
+    "EstrenoMusical",
+    "EventoMusical",
+    "ExperienciaMusical",
+    "GiraMusical",
+    "RadioMusical",
+    "RecitalMusical",
+    "ShowMusical",
+    "TalentoMusical"
+   ]
+  },
+  {
+   "name": "Innovación",
+   "parents": [
+    "Tecnología"
+   ],
+   "emoji": "🚀",
+   "aliases": [
+    "ProgramacionSemanal"
+   ]
+  }
+ ],
+ "formats": {
+  "Performance": [
+   "Beneficio",
+   "Cine",
+   "Comedia",
+   "Concierto",
+   "Exposición",
+   "Festival",
+   "Obra de teatro",
+   "Presentacion"
+  ],
+  "Participatory": [
+   "Conferencia",
+   "Convocatoria",
+   "Curso",
+   "Deporte",
+   "Taller"
+  ],
+  "Outing": [
+   "Empresa"
+  ]
+ },
+ "format_tags": {
+  "Beneficio": [
+   "Voluntariado"
+  ],
+  "Cine": [
+   "Ciclo",
+   "Cine",
+   "Francés",
+   "Independiente",
+   "Proyección"
+  ],
+  "Comedia": [
+   "Comedia",
+   "Humor",
+   "HumorNegro",
+   "HumorVenezolano",
+   "Stand-up"
+  ],
+  "Concierto": [
+   "Concierto",
+   "ConciertoAcústico",
+   "ConciertoBenefico",
+   "ConciertoDeAndyDurán",
+   "ConciertoEnVivo",
+   "Conciertos",
+   "ConciertosClásicos",
+   "ConciertosEnCCAM",
+   "ConciertosEnCaracas",
+   "ConciertosEnVivo",
+   "Electrónica",
+   "Instrumental",
+   "Musical",
+   "NocheDeConcierto",
+   "Pop",
+   "Recital",
+   "Show",
+   "ShowEnVivo"
+  ],
+  "Conferencia": [
+   "Catedra",
+   "Charlas",
+   "Conferencia",
+   "Formación",
+   "Foro",
+   "Investigación"
+  ],
+  "Convocatoria": [
+   "Becas",
+   "Concurso",
+   "ConcursoEstudiantil",
+   "Cursos",
+   "Encuentros",
+   "Idiomas",
+   "Premio",
+   "Premios"
+  ],
+  "Curso": [
+   "Creatividad",
+   "Cursos",
+   "Formación",
+   "Yoga"
+  ],
+  "Deporte": [
+   "Competencia",
+   "Deporte",
+   "Fútbol",
+   "Partido"
+  ],
+  "Empresa": [
+   "Economía",
+   "Negocios",
+   "Networking"
+  ],
+  "Exposición": [
+   "Arte",
+   "Exposición"
+  ],
+  "Festival": [
+   "Cine",
+   "Danza",
+   "Festival",
+   "FestivalOPERON",
+   "Música"
+  ],
+  "Obra de teatro": [
+   "Arte",
+   "Comedia",
+   "Competencia",
+   "Cultura",
+   "Drama",
+   "Educación",
+   "Experimental",
+   "Infantil",
+   "Musical",
+   "Stand-up",
+   "Teatro"
+  ],
+  "Presentacion": [
+   "Estreno",
+   "Estrenos",
+   "EstrenosCinematograficos",
+   "Presentacion"
+  ],
+  "Taller": [
+   "Creatividad",
+   "Cursos",
+   "Formación"
+  ]
+ },
+ "format_only_tags": [
+  "Becas",
+  "Catedra",
+  "Charlas",
+  "Concierto",
+  "ConciertoAcústico",
+  "ConciertoBenefico",
+  "ConciertoDeAndyDurán",
+  "ConciertoEnVivo",
+  "Conciertos",
+  "ConciertosClásicos",
+  "ConciertosEnCCAM",
+  "ConciertosEnCaracas",
+  "ConciertosEnVivo",
+  "Concurso",
+  "ConcursoEstudiantil",
+  "Conferencia",
+  "Estreno",
+  "Estrenos",
+  "EstrenosCinematograficos",
+  "Festival",
+  "FestivalOPERON",
+  "Foro",
+  "Humor",
+  "HumorNegro",
+  "HumorVenezolano",
+  "NocheDeConcierto",
+  "Partido",
+  "Premio",
+  "Premios",
+  "Presentacion",
+  "Recital",
+  "Show",
+  "ShowEnVivo"
+ ],
+ "tag_redirects": {
+  "Acuarela": "Artes visuales",
+  "AireLibre": "Naturaleza",
+  "Analisis": "Investigación",
+  "Arte": "Arte",
+  "Arte Underground": "Creatividad",
+  "ArteAudiovisual": "Digital",
+  "ArteCinetic": "Arte",
+  "ArteContemporaneo": "Arte",
+  "ArteCultural": "Arte",
+  "ArteDigital": "Digital",
+  "ArteEnEscena": "Experimental",
+  "ArteEscenico": "Experimental",
+  "ArteEscénico": "Experimental",
+  "ArteExperimental": "Arte",
+  "ArteGrafico": "Arte",
+  "ArteGráfico": "Arte",
+  "ArteIndigena": "Arte",
+  "ArteInteractivo": "Digital",
+  "ArteMusical": "Arte",
+  "ArteMúsica": "Arte",
+  "ArteSonoro": "Sonoro",
+  "ArteUrbano": "Urbano",
+  "ArteVenezolano": "Arte",
+  "ArteVisual": "Artes visuales",
+  "ArteYCultura": "Arte",
+  "ArteYcultura": "Arte",
+  "ArtesEscenicas": "Experimental",
+  "ArtesEscénicas": "Experimental",
+  "ArtesPlasticas": "Artes visuales",
+  "ArtesVisuales": "Artes visuales",
+  "ArtistaVenezolana": "Venezolana",
+  "ArtistaVenezolano": "Venezolana",
+  "ArtistasPlasticos": "Venezolana",
+  "ArtistasVenezolanos": "Venezolana",
+  "AsociacionCulturalHumboldt": "Encuentros",
+  "Automovilismo": "Competencia",
+  "Bachata": "Salsa",
+  "BaladaPop": "Pop",
+  "Ballet": "Ballet",
+  "Banda": "Orquestal",
+  "BandaSinfonica": "Orquestal",
+  "Bienestar": "Bienestar",
+  "Bolero": "Salsa",
+  "Boleros": "Salsa",
+  "CafeVenezuela": "Café",
+  "Camara": "Instrumental",
+  "CampeonatoBaristas": "Competencia",
+  "CantoCoral": "Coral",
+  "CatedraTeatral": "Formación",
+  "Ceramica": "Artes visuales",
+  "Certificacion": "Cursos",
+  "CertificacionIdiomas": "Idiomas",
+  "Ciclo": "Ciclo",
+  "CicloDeCamara": "Ciclo",
+  "CicloDeCine": "Ciclo",
+  "Cine": "Cine",
+  "CineFrances": "Francés",
+  "CineFrancés": "Francés",
+  "CineIndependiente": "Independiente",
+  "CineVenezolano": "Independiente",
+  "CineVenezuela": "Cine",
+  "CinematecaNacional": "Proyección",
+  "Ciudadania": "Identidad",
+  "ClaseMagistral": "Formación",
+  "Clases": "Cursos",
+  "ClasesDeArte": "Creatividad",
+  "ClasesDeYoga": "Yoga",
+  "Clasica": "Clásica",
+  "Clasico": "Clásico",
+  "Clásica": "Clásica",
+  "CocinaPatrimonial": "Patrimonio",
+  "Coleccion": "Exposición",
+  "Collage": "Artes visuales",
+  "Comedia": "Comedia",
+  "ComediaEnVivo": "Comedia",
+  "ComediaMusical": "Comedia",
+  "ComediaRapida": "Comedia",
+  "ComediaVenezolana": "Comedia",
+  "Competencia": "Competencia",
+  "CompetenciaMusical": "Competencia",
+  "CompetenciaNacional": "Competencia",
+  "ComposicionMusical": "Musical",
+  "Comunidad": "Comunidad",
+  "ConcienciaSocial": "Identidad",
+  "ConciertoCamara": "Instrumental",
+  "ConciertoDeCamara": "Instrumental",
+  "ConciertoDeCámara": "Instrumental",
+  "ConciertoDeMúsicaElectrónica": "Electrónica",
+  "ConciertoDePop": "Pop",
+  "ConciertosDeCámara": "Instrumental",
+  "Conversatorio": "Investigación",
+  "Convocatoria": "Encuentros",
+  "Coros": "Coral",
+  "Corporativo": "Economía",
+  "Cortometraje": "Independiente",
+  "Creatividad": "Creatividad",
+  "Cultura": "Cultura",
+  "CulturaAlternativa": "Cultura",
+  "CulturaCCS": "Cultura",
+  "CulturaCaracas": "Cultura",
+  "CulturaCinematográfica": "Cultura",
+  "CulturaClásica": "Cultura",
+  "CulturaFrancia": "Cultura",
+  "CulturaGastronomica": "Cultura",
+  "CulturaItaliana": "Cultura",
+  "CulturaJuvenil": "Cultura",
+  "CulturaLírica": "Cultura",
+  "CulturaMusica": "Cultura",
+  "CulturaMusical": "Cultura",
+  "CulturaPop": "Cultura",
+  "CulturaPopular": "Cultura",
+  "CulturaUnderground": "Cultura",
+  "CulturaUrbana": "Cultura",
+  "CulturaVenezolana": "Cultura",
+  "CulturaVisual": "Cultura",
+  "Cursos": "Cursos",
+  "CursosDeIdiomas": "Cursos",
+  "Cámara": "Instrumental",
+  "DJ": "Electrónica",
+  "DJSet": "Electrónica",
+  "DJSets": "Electrónica",
+  "Danza": "Danza",
+  "DanzaClasica": "Danza",
+  "Deporte": "Deporte",
+  "DeporteMotor": "Deporte",
+  "DiaInternacionalDelJazz": "Jazz",
+  "DjSet": "Electrónica",
+  "DomingosDeMúsica": "Música",
+  "Drama": "Drama",
+  "Dulces": "Cocina",
+  "Economia": "Economía",
+  "Educacion": "Educación",
+  "EducacionArtistica": "Educación",
+  "EducacionMusical": "Educación",
+  "Educación": "Educación",
+  "Ejercicio": "Ejercicio",
+  "Electronica": "Electrónica",
+  "ElectrónicaEnVivo": "Electrónica",
+  "Empoderamiento": "Identidad",
+  "Emprendimiento": "Economía",
+  "Encuentro": "Encuentros",
+  "EntretenimientoFamiliar": "Infantil",
+  "Escritura": "Escritura",
+  "Escultura": "Artes visuales",
+  "EspectáculoMusical": "Musical",
+  "EstrenoCine": "Cine",
+  "EstrenoMusical": "Musical",
+  "EventoMusical": "Musical",
+  "EventosDeMusica": "Música",
+  "ExperienciaMusical": "Musical",
+  "Experimental": "Experimental",
+  "Exposicion": "Exposición",
+  "ExposicionDeArte": "Exposición",
+  "ExposicionIndividual": "Exposición",
+  "ExposicionInteractiva": "Exposición",
+  "Exposición": "Exposición",
+  "Familia": "Familia",
+  "Feria": "Exposición",
+  "FeriaComercial": "Exposición",
+  "FestivalCine": "Cine",
+  "FestivalDanza": "Danza",
+  "FestivalDeCine": "Cine",
+  "FestivalDeMusica": "Música",
+  "FestivalMusica": "Música",
+  "Fitness": "Ejercicio",
+  "Flamenco": "Flamenco",
+  "Folk": "Folklore",
+  "Folklore": "Folklore",
+  "Formacion": "Formación",
+  "FormacionArtistica": "Formación",
+  "FormacionTeatral": "Formación",
+  "Fotografia": "Fotografía",
+  "Freestyle": "Urbana",
+  "Fusion": "Experimental",
+  "FusionMusical": "Experimental",
+  "Futbol": "Fútbol",
+  "Fútbol": "Fútbol",
+  "GaleriaDeArte": "Arte",
+  "Gastronomia": "Gastronomía",
+  "GiraMundial": "Fútbol",
+  "GiraMusical": "Musical",
+  "Grabado": "Artes visuales",
+  "Grotowski": "Experimental",
+  "HipHop": "Urbana",
+  "Historia": "Historia",
+  "IdiomaItaliano": "Idiomas",
+  "Idiomas": "Idiomas",
+  "Ilustracion": "Artes visuales",
+  "Inauguracion": "Exposición",
+  "Indie": "Alternativa",
+  "Infantil": "Infantil",
+  "Innovacion": "Innovación",
+  "Inscripciones": "Cursos",
+  "Instrumental": "Instrumental",
+  "Investigacion": "Investigación",
+  "InvestigacionTeatral": "Formación",
+  "Jazz": "Jazz",
+  "JazzLatino": "Jazz",
+  "JerzyGrotowski": "Experimental",
+  "JuevesDeComedia": "Comedia",
+  "LaSalaExperimental": "Experimental",
+  "Librerias": "Lectura",
+  "Literatura": "Literatura",
+  "Mambo": "Salsa",
+  "Manualidades": "Creatividad",
+  "Medicina": "Salud pública",
+  "Meditacion": "Meditación",
+  "MemoriaVisual": "Historia",
+  "Monologo": "Stand-up",
+  "MuestraArtistica": "Exposición",
+  "MuestraDeArte": "Exposición",
+  "MujerYMusica": "Música",
+  "Mundial2026": "Fútbol",
+  "Musica": "Música",
+  "MusicaAfrocaribeña": "Música",
+  "MusicaAlternativa": "Alternativa",
+  "MusicaClasica": "Clásica",
+  "MusicaClassica": "Música",
+  "MusicaContemporanea": "Música",
+  "MusicaCoral": "Coral",
+  "MusicaCristiana": "Música",
+  "MusicaDeCamara": "Música",
+  "MusicaElectronica": "Electrónica",
+  "MusicaEmergente": "Música",
+  "MusicaEnVivo": "Música",
+  "MusicaExperimental": "Experimental",
+  "MusicaLatina": "Latina",
+  "MusicaNavideña": "Música",
+  "MusicaPopular": "Música",
+  "MusicaRock": "Música",
+  "MusicaTropical": "Música",
+  "MusicaUnderground": "Música",
+  "MusicaUrbana": "Urbana",
+  "MusicaVariada": "Música",
+  "MusicaVenezolana": "Venezolana",
+  "Musical": "Musical",
+  "Música": "Música",
+  "Música Latina": "Latina",
+  "MúsicaAlternativa": "Alternativa",
+  "MúsicaClásica": "Clásica",
+  "MúsicaCoral": "Coral",
+  "MúsicaDeBaile": "Música",
+  "MúsicaDeCámara": "Música",
+  "MúsicaElectronica": "Electrónica",
+  "MúsicaElectrónica": "Electrónica",
+  "MúsicaEn Vivo": "Música",
+  "MúsicaEnDirecto": "Música",
+  "MúsicaEnVivo": "Música",
+  "MúsicaEnVivoCCAM": "Música",
+  "MúsicaExperimental": "Experimental",
+  "MúsicaFemenina": "Música",
+  "MúsicaLatina": "Latina",
+  "MúsicaOrquestal": "Orquestal",
+  "MúsicaPopular": "Música",
+  "MúsicaTropical": "Música",
+  "MúsicaUnder": "Música",
+  "MúsicaUrbana": "Urbana",
+  "MúsicaVenezolana": "Venezolana",
+  "MúsicaViva": "Música",
+  "Naturaleza": "Naturaleza",
+  "Negocios": "Negocios",
+  "Networking": "Networking",
+  "Niños": "Infantil",
+  "NocheDeMúsica": "Música",
+  "NocheDePoesia": "Escritura",
+  "NocheDeRock": "Alternativa",
+  "NocheDeSalsa": "Salsa",
+  "NocheUrbana": "Urbana",
+  "NuevaMúsica": "Música",
+  "ObraClasica": "Clásica",
+  "ObraDeTeatro": "Teatro",
+  "ObraPostuma": "Drama",
+  "ObraTeatral": "Drama",
+  "OperaRock": "Alternativa",
+  "Orquesta": "Orquestal",
+  "OrquestaSinfonica": "Clásica",
+  "OrquestaSinfónica": "Clásica",
+  "Patrimonio": "Patrimonio",
+  "PatrimonioCultural": "Patrimonio",
+  "Peliculas": "Independiente",
+  "Películas": "Independiente",
+  "Percusion": "Instrumental",
+  "Piano": "Instrumental",
+  "Pintura": "Artes visuales",
+  "Poesia": "Escritura",
+  "Pop": "Pop",
+  "PopLatino": "Urbana",
+  "PopRock": "Pop",
+  "PopUrbano": "Urbana",
+  "Postres": "Cocina",
+  "ProgramacionSemanal": "Innovación",
+  "Proyeccion": "Proyección",
+  "Proyección": "Proyección",
+  "RadioMusical": "Musical",
+  "Rap": "Urbana",
+  "RecitalDeCamara": "Instrumental",
+  "RecitalMusical": "Musical",
+  "Reggae": "Reggae",
+  "Reggaeton": "Urbana",
+  "RitmoLatino": "Latina",
+  "RitmoTropical": "Latina",
+  "RitmoYFusión": "Experimental",
+  "Rock": "Alternativa",
+  "RockRap": "Alternativa",
+  "RockVenezolano": "Alternativa",
+  "RockYMas": "Alternativa",
+  "RutaCultural": "Patrimonio",
+  "Sabores": "Cocina",
+  "SalonDeArte": "Arte",
+  "Salsa": "Salsa",
+  "SalsaUrbana": "Salsa",
+  "SalsaVenezolana": "Salsa",
+  "Salud": "Salud",
+  "ShowMusical": "Musical",
+  "SinFonica": "Clásica",
+  "Sinfonica": "Clásica",
+  "Sinfonico": "Clásica",
+  "Sinfónico": "Clásica",
+  "Solidaridad": "Voluntariado",
+  "Sonido": "Sonoro",
+  "SonidoEnVivo": "Sonoro",
+  "SonidoExperimental": "Sonoro",
+  "StandUp": "Stand-up",
+  "StandUpComedy": "Stand-up",
+  "SunshineReggae": "Reggae",
+  "TalentoMusical": "Musical",
+  "Taller": "Cursos",
+  "TallerCreativo": "Cursos",
+  "TallerDeArte": "Cursos",
+  "TallerDePintura": "Cursos",
+  "Talleres": "Cursos",
+  "TalleresCreativos": "Cursos",
+  "Teatro": "Teatro",
+  "TeatroInfantil": "Infantil",
+  "TeatroTeresaCarreño": "Teatro",
+  "Tecnologia": "Tecnología",
+  "TemporadaDanza": "Tradicional",
+  "TerrorComedia": "Comedia",
+  "Tropical": "Latina",
+  "Urbano": "Urbano",
+  "Yoga": "Yoga"
+ }
+}
