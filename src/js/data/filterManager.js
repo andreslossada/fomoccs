@@ -63,34 +63,20 @@ const FilterManager = (() => {
     }
 
     /**
-     * Checks if an occurrence overlaps with a date range
+     * Checks if an occurrence overlaps with a date range.
+     * Epoch-ms bounds are cached on the occurrence (immutable after parse) so
+     * repeated date filtering skips the per-occurrence Date math.
      * @param {Object} occurrence - Occurrence with start and end dates
-     * @param {Date} startFilter - Start of date range
-     * @param {Date} endFilter - End of date range
+     * @param {number} startFilterMs - Start of date range (epoch ms)
+     * @param {number} endFilterMs - End of date range (epoch ms)
      * @returns {boolean} True if occurrence overlaps with range
      */
-    function occurrenceOverlapsRange(occurrence, startFilter, endFilter) {
-        const effectiveEnd = getEffectiveEndDate(occurrence);
-        return occurrence.start <= endFilter && effectiveEnd >= startFilter;
-    }
-
-    /**
-     * Checks if an event occurs within a given date range
-     * @param {Object} event - Event object with occurrences
-     * @param {Date} startDate - Start of date range
-     * @param {Date} endDate - End of date range
-     * @returns {boolean} True if event has at least one occurrence in range
-     */
-    function isEventInDateRange(event, startDate, endDate) {
-        if (!event.occurrences || event.occurrences.length === 0) {
-            return false;
+    function occurrenceOverlapsRange(occurrence, startFilterMs, endFilterMs) {
+        if (occurrence.effectiveEndMs === undefined) {
+            occurrence.startMs = occurrence.start.getTime();
+            occurrence.effectiveEndMs = getEffectiveEndDate(occurrence).getTime();
         }
-
-        const { startFilter, endFilter } = normalizeDateFilters(startDate, endDate);
-
-        return event.occurrences.some(occurrence =>
-            occurrenceOverlapsRange(occurrence, startFilter, endFilter)
-        );
+        return occurrence.startMs <= endFilterMs && occurrence.effectiveEndMs >= startFilterMs;
     }
 
     /**
@@ -101,6 +87,8 @@ const FilterManager = (() => {
      */
     function filterEventsByDateRange(startDate, endDate) {
         const { startFilter, endFilter } = normalizeDateFilters(startDate, endDate);
+        const startFilterMs = startFilter.getTime();
+        const endFilterMs = endFilter.getTime();
         const filteredEvents = [];
 
         for (const event of state.appState.allEvents) {
@@ -109,7 +97,7 @@ const FilterManager = (() => {
             }
 
             const matchingOccurrences = event.occurrences.filter(occurrence =>
-                occurrenceOverlapsRange(occurrence, startFilter, endFilter)
+                occurrenceOverlapsRange(occurrence, startFilterMs, endFilterMs)
             );
 
             if (matchingOccurrences.length > 0) {
@@ -128,72 +116,23 @@ const FilterManager = (() => {
     // ========================================
 
     /**
-     * Checks if an event matches the current tag filters
-     * Considers both event tags and location tags
-     *
-     * @param {Object} event - Event object
-     * @param {Object} tagStates - Tag states object {tagName: state}
-     * @returns {boolean} True if event matches tag filters
-     */
-    function isEventMatchingTagFilters(event, tagStates) {
-        // Extract tag categories
-        const selectedTags = Object.entries(tagStates)
-            .filter(([, state]) => state === 'selected' || state === 'implicit')
-            .map(([tag]) => tag);
-
-        const requiredTags = Object.entries(tagStates)
-            .filter(([, state]) => state === 'required')
-            .map(([tag]) => tag);
-
-        const forbiddenTags = Object.entries(tagStates)
-            .filter(([, state]) => state === 'forbidden')
-            .map(([tag]) => tag);
-
-        // Get combined tags from event and location
-        const locationInfo = state.appState.locationsByLatLng[event.locationKey];
-        const combinedTags = new Set([
-            ...(event.tags || []),
-            ...(locationInfo?.tags || [])
-        ]);
-
-        // Forbidden tags: event must not have any forbidden tags
-        if (forbiddenTags.length > 0 && forbiddenTags.some(tag => combinedTags.has(tag))) {
-            return false;
-        }
-
-        // Required tags: event must have ALL required tags
-        if (requiredTags.length > 0 && !requiredTags.every(tag => combinedTags.has(tag))) {
-            return false;
-        }
-
-        // Selected tags: event must have at least ONE selected tag (if no required tags)
-        if (requiredTags.length === 0 && selectedTags.length > 0 && !selectedTags.some(tag => combinedTags.has(tag))) {
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
      * Filters events by tag states using tag index for performance
      * @param {Object} tagStates - Tag states object {tagName: state}
      * @param {Array} baseEvents - Events to filter (already filtered by date/location)
-     * @param {Array<string>} [enrichedSelectedTags] - Optional array of selected tags including related tags
      * @returns {Array} Events matching tag filters
      */
-    function filterEventsByTags(tagStates, baseEvents, enrichedSelectedTags = null) {
-        // Use enriched tags if provided, otherwise extract from tagStates (including implicit)
-        const selectedTags = enrichedSelectedTags || Object.entries(tagStates)
-            .filter(([, state]) => state === 'selected' || state === 'implicit')
-            .map(([tag]) => tag);
+    function filterEventsByTags(tagStates, baseEvents) {
+        const { selectedTags, requiredTags, forbiddenTags } = Utils.partitionTagStates(tagStates);
 
-        const requiredTags = Object.entries(tagStates)
-            .filter(([, state]) => state === 'required')
-            .map(([tag]) => tag);
-
-        const forbiddenTags = Object.entries(tagStates)
-            .filter(([, state]) => state === 'forbidden')
-            .map(([tag]) => tag);
+        // Tag-index ids must resolve to the date-filtered copies in baseEvents
+        // (they carry matching_occurrences); state.appState.eventsById holds
+        // the un-annotated originals, which would rank and display recurring
+        // events by occurrences outside the active date range downstream.
+        let baseById = null;
+        if (requiredTags.length > 0 || selectedTags.length > 0) {
+            baseById = new Map();
+            for (const event of baseEvents) baseById.set(event.id, event);
+        }
 
         let filteredEvents;
 
@@ -215,7 +154,7 @@ const FilterManager = (() => {
             }
 
             filteredEvents = Array.from(matchingEventIds)
-                .map(id => state.appState.eventsById[id])
+                .map(id => baseById.get(id))
                 .filter(Boolean);
         }
         // Selected tags: use union of tag indexes (including related tags!)
@@ -231,20 +170,17 @@ const FilterManager = (() => {
             });
 
             filteredEvents = Array.from(matchingEventIds)
-                .map(id => state.appState.eventsById[id])
+                .map(id => baseById.get(id))
                 .filter(Boolean);
         }
-        // No tags selected
-        else {
-            filteredEvents = baseEvents;
-        }
 
-        // Apply forbidden tag filter
+        // Use the same event + venue + organizer membership as inclusion.
         if (forbiddenTags.length > 0) {
-            const forbiddenTagsSet = new Set(forbiddenTags);
-            filteredEvents = filteredEvents.filter(event =>
-                !event.tags?.some(tag => forbiddenTagsSet.has(tag))
-            );
+            const forbiddenIds = new Set();
+            for (const tag of forbiddenTags) {
+                for (const id of state.appState.eventTagIndex[tag] || []) forbiddenIds.add(id);
+            }
+            filteredEvents = filteredEvents.filter(event => !forbiddenIds.has(event.id));
         }
 
         return filteredEvents;
@@ -269,34 +205,44 @@ const FilterManager = (() => {
         const visibleLocationKeys = new Set();
         const visibleTagFrequencies = {};
 
+        // Events cluster on far fewer distinct locations than there are
+        // events, so the bounds check and proximity weight are computed once
+        // per locationKey rather than once per event. The cache is per-call:
+        // nothing survives across viewport or filter changes.
+        const locationCache = new Map();
+
         events.forEach(event => {
             if (event.locationKey) {
-                const [lat, lng] = event.locationKey.split(',').map(Number);
-
-                if (bounds.contains([lat, lng])) {
-                    visibleEvents.push(event);
-                    visibleLocationKeys.add(event.locationKey);
-
-                    // Calculate tag frequencies with proximity weighting
-                    if (event.tags) {
+                let loc = locationCache.get(event.locationKey);
+                if (loc === undefined) {
+                    const ll = Utils.parseLocationKey(event.locationKey);
+                    const inBounds = !!ll && bounds.contains([ll.lat, ll.lng]);
+                    let proximityWeight = 0;
+                    if (inBounds) {
                         // Use pre-calculated distance if available, otherwise calculate on the fly
                         let distance;
                         if (locationDistances?.[event.locationKey] !== undefined) {
                             distance = locationDistances[event.locationKey];
                         } else if (visibleCenter) {
-                            distance = Utils.calculateHaversineDistance(visibleCenter, { lat, lng });
+                            distance = Utils.calculateHaversineDistance(visibleCenter, ll);
                         } else {
                             distance = 0;
                         }
                         // Max bonus of 1 for being at the center, decreasing to 0 at max proximity distance
-                        const proximityWeight = Math.max(0, 1 - distance / Constants.DISTANCE.MAX_PROXIMITY_METERS);
+                        proximityWeight = Math.max(0, 1 - distance / Constants.DISTANCE.MAX_PROXIMITY_METERS);
+                    }
+                    loc = { inBounds, proximityWeight };
+                    locationCache.set(event.locationKey, loc);
+                }
 
-                        event.tags.forEach(tag => {
-                            if (!visibleTagFrequencies[tag]) {
-                                visibleTagFrequencies[tag] = 0;
-                            }
-                            visibleTagFrequencies[tag] += 1 + proximityWeight;
-                        });
+                if (loc.inBounds) {
+                    visibleEvents.push(event);
+                    visibleLocationKeys.add(event.locationKey);
+
+                    // Each effective tag counts once, even if event and venue share it.
+                    const tags = Utils.eventFilterTags(event, state.appState.locationsByLatLng[event.locationKey]);
+                    for (const tag of tags) {
+                        visibleTagFrequencies[tag] = (visibleTagFrequencies[tag] || 0) + 1 + loc.proximityWeight;
                     }
                 }
             }
@@ -348,63 +294,12 @@ const FilterManager = (() => {
         state.config = config.config;
     }
 
-    /**
-     * Main filtering function that applies all filters
-     * @param {Object} params - Filter parameters
-     * @param {Date} params.startDate - Start date
-     * @param {Date} params.endDate - End date
-     * @param {Object} params.tagStates - Tag states object
-     * @param {Object} [params.bounds] - Bounds object for viewport filtering
-     * @param {Object} [params.visibleCenter] - Visible center coordinates {lat, lng}
-     * @returns {Object} Filtered results with various subsets
-     */
-    function applyFilters(params) {
-        const {
-            startDate,
-            endDate,
-            tagStates,
-            bounds,
-            visibleCenter
-        } = params;
-
-        // Step 1: Filter by date range
-        const eventsInDateRange = filterEventsByDateRange(startDate, endDate);
-
-        // Step 2: Filter by tags
-        const eventsMatchingTags = filterEventsByTags(tagStates, eventsInDateRange);
-
-        // Step 3: Group by location
-        const eventsByLocation = groupEventsByLocation(eventsMatchingTags);
-        const matchingLocationKeys = new Set(Object.keys(eventsByLocation));
-
-        // Step 4: Filter by viewport (if bounds provided)
-        let viewportResults = null;
-        if (bounds && visibleCenter) {
-            viewportResults = filterEventsByViewport(eventsMatchingTags, bounds, visibleCenter);
-        }
-
-        return {
-            eventsInDateRange,
-            eventsMatchingTags,
-            eventsByLocation,
-            matchingLocationKeys,
-            ...(viewportResults && {
-                visibleEvents: viewportResults.visibleEvents,
-                visibleLocationKeys: viewportResults.visibleLocationKeys,
-                visibleTagFrequencies: viewportResults.visibleTagFrequencies
-            })
-        };
-    }
-
     // ========================================
     // EXPORTS
     // ========================================
 
     return {
         init,
-        applyFilters,
-        isEventInDateRange,
-        isEventMatchingTagFilters,
         filterEventsByDateRange,
         filterEventsByTags,
         filterEventsByViewport,

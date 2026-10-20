@@ -2,9 +2,8 @@
  * HistoryManager — browser history (pushState/popstate) for back/forward navigation
  *
  * Pushes a full state snapshot on every discrete user action (marker click,
- * tag toggle, date change, tab switch, sheet snap). Continuous changes
- * (map pan, search typing) don't push — their values are captured in
- * the next discrete push.
+ * tag toggle, date change, sheet snap). Continuous changes (map pan, search
+ * typing) don't push — their values are captured in the next discrete push.
  *
  * @module HistoryManager
  */
@@ -33,16 +32,18 @@ const HistoryManager = (() => {
             Object.entries(cb.getTagStates()).filter(([, s]) => s !== 'unselected')
         );
 
-        // Dates: convert to ISO strings
+        // Dates: convert to local YYYY-MM-DD strings (toISOString would shift
+        // to the next day in any timezone west of UTC for evening captures)
         const rawDates = cb.getSelectedDates();
-        const dates = rawDates.map(d => d instanceof Date ? d.toISOString().split('T')[0] : '');
+        const dates = rawDates.map(d => d instanceof Date ? URLParams.formatDate(d) : '');
 
-        // Bottom sheet
-        let bottomSheet = { mode: 'closed', tab: 0, snap: 0 };
-        if (BottomSheet.isDetailMode()) {
-            bottomSheet = { mode: 'detail', tab: -1, snap: BottomSheet.getCurrentSnap() };
-        } else if (BottomSheet.isOpen()) {
-            bottomSheet = { mode: 'browse', tab: BottomSheet.getActiveTab(), snap: BottomSheet.getCurrentSnap() };
+        // Sheet (mobile only — desktop open state persists via localStorage,
+        // and back/forward shouldn't toggle a docked panel)
+        let sheet = { mode: 'closed', snap: 0 };
+        if (Sheet.isDetailMode()) {
+            sheet = { mode: 'detail', snap: Sheet.getCurrentSnap() };
+        } else if (Utils.isMobileLayout() && Sheet.isOpen()) {
+            sheet = { mode: 'browse', snap: Sheet.getCurrentSnap() };
         }
 
         return {
@@ -51,9 +52,12 @@ const HistoryManager = (() => {
             zoom: map.getZoom(),
             selectedLocationKey: cb.getSelectedLocationKey(),
             tags,
+            structuredQuery: cb.getQuery?.() ?? null,
+            formats: cb.getFormats?.() ?? null,
+            neighborhoods: cb.getNeighborhoods?.() ?? null,
             dates,
             searchTerm: cb.getSearchTerm(),
-            bottomSheet
+            sheet
         };
     }
 
@@ -63,6 +67,8 @@ const HistoryManager = (() => {
 
     function _statesAreEqual(a, b) {
         if (!a || !b) return false;
+
+        if (JSON.stringify(a.structuredQuery ?? null) !== JSON.stringify(b.structuredQuery ?? null)) return false;
 
         // Map position (with tolerance)
         if (Math.abs(a.lat - b.lat) > 0.00001) return false;
@@ -80,6 +86,9 @@ const HistoryManager = (() => {
             if (a.tags[key] !== b.tags[key]) return false;
         }
 
+        if (JSON.stringify(a.formats ?? null) !== JSON.stringify(b.formats ?? null)) return false;
+        if (JSON.stringify(a.neighborhoods ?? null) !== JSON.stringify(b.neighborhoods ?? null)) return false;
+
         // Dates
         if (a.dates.length !== b.dates.length) return false;
         for (let i = 0; i < a.dates.length; i++) {
@@ -89,10 +98,12 @@ const HistoryManager = (() => {
         // Search
         if (a.searchTerm !== b.searchTerm) return false;
 
-        // Bottom sheet
-        if (a.bottomSheet.mode !== b.bottomSheet.mode) return false;
-        if (a.bottomSheet.tab !== b.bottomSheet.tab) return false;
-        if (a.bottomSheet.snap !== b.bottomSheet.snap) return false;
+        // Sheet (read the legacy `bottomSheet` key from pre-rename entries;
+        // its extra `tab` field is ignored)
+        const as = a.sheet || a.bottomSheet || {};
+        const bs = b.sheet || b.bottomSheet || {};
+        if (as.mode !== bs.mode) return false;
+        if (as.snap !== bs.snap) return false;
 
         return true;
     }
@@ -109,19 +120,7 @@ const HistoryManager = (() => {
         if (_statesAreEqual(state.lastPushedState, newState)) return;
 
         state.lastPushedState = newState;
-        window.history.pushState(newState, '');
-    }
-
-    /**
-     * Suppress pushes during fn(). Use when a single user action triggers
-     * multiple events that each call push() — e.g. _clearDetail() fires
-     * popupclose (→ push) before the tab switch (→ push). Wrapping the
-     * first part in batch() ensures only the final push captures state.
-     */
-    function batch(fn) {
-        const was = state.isRestoringState;
-        state.isRestoringState = true;
-        try { fn(); } finally { state.isRestoringState = was; }
+        window.history.pushState(newState, '', state.callbacks.getQueryUrl?.() || location.href);
     }
 
     // ========================================
@@ -132,8 +131,8 @@ const HistoryManager = (() => {
         const popup = MapManager.getCurrentPopup();
         if (popup) {
             popup.remove();
-        } else if (BottomSheet.isDetailMode()) {
-            BottomSheet.close();
+        } else if (Sheet.isDetailMode()) {
+            Sheet.close();
         }
     }
 
@@ -142,6 +141,7 @@ const HistoryManager = (() => {
 
         state.isRestoringState = true;
         const cb = state.callbacks;
+        cb.restoreQuery?.(historyState.structuredQuery ?? null);
 
         // 1. Map position
         state.map.jumpTo({
@@ -151,7 +151,7 @@ const HistoryManager = (() => {
 
         // 2. Tags — diff and apply changes (silent; UI rebuild deferred)
         const currentTags = cb.getTagStates();
-        const savedTags = historyState.tags || {};
+        const savedTags = Object.fromEntries(Object.entries(historyState.tags || {}).map(([tag, value]) => [cb.canonicalTag?.(tag) || tag, value]));
         let tagsChanged = false;
 
         for (const [tag, tagState] of Object.entries(currentTags)) {
@@ -170,7 +170,12 @@ const HistoryManager = (() => {
         // 3. Dates — set picker, then rebuild the date-filtered event list.
         //    flatpickr.setDate() does NOT trigger onClose, so we call
         //    updateFilteredEventList explicitly.
-        let datesChanged = false;
+        let datesChanged = JSON.stringify(cb.getFormats?.() ?? null) !== JSON.stringify(historyState.formats ?? null);
+        if (datesChanged) cb.setFormats?.(historyState.formats ?? null);
+        if (JSON.stringify(cb.getNeighborhoods?.() ?? null) !== JSON.stringify(historyState.neighborhoods ?? null)) {
+            cb.setNeighborhoods?.(historyState.neighborhoods ?? null);
+            datesChanged = true;
+        }
         const savedDates = historyState.dates || [];
         if (savedDates.length >= 2) {
             const datePicker = cb.getDatePicker();
@@ -178,12 +183,18 @@ const HistoryManager = (() => {
                 const currentDates = datePicker.selectedDates;
                 const savedStart = savedDates[0];
                 const savedEnd = savedDates[1];
-                const currentStart = currentDates[0] ? currentDates[0].toISOString().split('T')[0] : '';
-                const currentEnd = currentDates[1] ? currentDates[1].toISOString().split('T')[0] : '';
+                const currentStart = currentDates[0] ? URLParams.formatDate(currentDates[0]) : '';
+                const currentEnd = currentDates[1] ? URLParams.formatDate(currentDates[1]) : '';
 
                 if (savedStart !== currentStart || savedEnd !== currentEnd) {
-                    datePicker.setDate(savedDates);
-                    datesChanged = true;
+                    // setDate needs Date objects: flatpickr parses string args
+                    // with its display format ("M j"), so YYYY-MM-DD strings
+                    // would fail to parse and clear the selection
+                    const parsed = savedDates.slice(0, 2).map(s => URLParams.parseDate(s).date);
+                    if (parsed.every(Boolean)) {
+                        datePicker.setDate(parsed);
+                        datesChanged = true;
+                    }
                 }
             }
         }
@@ -204,25 +215,24 @@ const HistoryManager = (() => {
         if (historyState.selectedLocationKey) {
             if (currentKey !== historyState.selectedLocationKey) {
                 if (currentKey) _closeCurrentPopup();
-                const [lat, lng] = historyState.selectedLocationKey.split(',').map(Number);
-                MarkerController.flyToLocationAndOpenPopup(lat, lng, null);
+                const ll = Utils.parseLocationKey(historyState.selectedLocationKey);
+                if (ll) MarkerController.flyToLocationAndOpenPopup(ll.lat, ll.lng, null);
             }
         } else if (currentKey) {
             _closeCurrentPopup();
         }
 
-        // 7. Bottom sheet (mobile)
-        const isMobile = window.innerWidth <= Constants.UI.MOBILE_BREAKPOINT;
+        // 7. Sheet (mobile; legacy entries stored it under `bottomSheet`)
+        const isMobile = Utils.isMobileLayout();
         if (isMobile) {
-            const bs = historyState.bottomSheet || { mode: 'closed', tab: 0, snap: 0 };
+            const s = historyState.sheet || historyState.bottomSheet || { mode: 'closed', snap: 0 };
 
             if (!historyState.selectedLocationKey) {
-                if (bs.mode === 'browse') {
-                    if (BottomSheet.isDetailMode()) BottomSheet.close();
-                    BottomSheet.switchTab(bs.tab);
-                    BottomSheet.snapTo(bs.snap);
+                if (s.mode === 'browse' && s.snap > 0) {
+                    if (Sheet.isDetailMode()) Sheet.close();
+                    Sheet.snapTo(s.snap);
                 } else {
-                    BottomSheet.close();
+                    Sheet.close();
                 }
             }
         }
@@ -262,6 +272,15 @@ const HistoryManager = (() => {
     // PUBLIC API
     // ========================================
 
+    function replace() {
+        if (!state.initialized) return;
+        const current = _captureState();
+        if (current) {
+            state.lastPushedState = current;
+            window.history.replaceState(current, '', state.callbacks.getQueryUrl?.() || location.href);
+        }
+    }
+
     function isRestoring() {
         return state.isRestoringState;
     }
@@ -269,7 +288,7 @@ const HistoryManager = (() => {
     return {
         init,
         push,
-        batch,
+        replace,
         isRestoring
     };
 })();

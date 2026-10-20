@@ -26,9 +26,6 @@ const ThemeManager = (() => {
         appState: null,
         config: null,
 
-        // Current theme ('dark' or 'light')
-        currentTheme: 'dark',
-
         // Callbacks (injected during init)
         onThemeChange: null
     };
@@ -39,55 +36,44 @@ const ThemeManager = (() => {
 
     /**
      * Sets the theme for the application
-     * Updates DOM attribute, localStorage, and optionally updates icon visibility
+     * Updates DOM attribute and localStorage
      *
      * @param {string} theme - Theme to apply ('dark' or 'light')
-     * @param {HTMLElement} [moonIcon=null] - Optional moon icon element to toggle
-     * @param {HTMLElement} [sunIcon=null] - Optional sun icon element to toggle
      */
-    function setTheme(theme, moonIcon = null, sunIcon = null) {
-        const root = document.documentElement;
-        root.setAttribute('data-theme', theme);
-        state.currentTheme = theme;
-
-        // Update icon visibility if icons provided
-        if (moonIcon && sunIcon) {
-            if (theme === 'light') {
-                moonIcon.style.display = 'none';
-                sunIcon.style.display = 'block';
-            } else {
-                moonIcon.style.display = 'block';
-                sunIcon.style.display = 'none';
-            }
-        }
+    function setTheme(theme) {
+        // Removed or invalid saved themes fall back to Dark.
+        theme = theme === 'light' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
 
         // Save theme preference to localStorage
-        localStorage.setItem('theme', theme);
+        Utils.SafeStorage.setItem('theme', theme);
     }
 
-    /**
-     * Applies theme change including map style updates and callbacks
-     * This is the main method called when user changes theme in settings
-     *
-     * @param {string} theme - Theme to apply ('dark' or 'light')
-     */
+    /** Returns the map style URL for a Dark or Light theme. */
+    function _styleUrlFor(theme) {
+        return theme === 'light'
+            ? state.config.MAP_STYLE_LIGHT
+            : state.config.MAP_STYLE_DARK;
+    }
+
+    /** Applies the selected theme to the UI and map. */
     function applyThemeChange(theme) {
-        // Update theme in DOM and localStorage
-        setTheme(theme, null, null);
+        const oldTheme = getCurrentTheme();
+        setTheme(theme);
+        const currentTheme = getCurrentTheme();
+        if (currentTheme === oldTheme) return;
 
-        // Update MapLibre style based on theme
-        if (state.appState && state.appState.map) {
-            const styleUrl = theme === 'dark'
-                ? state.config.MAP_STYLE_DARK
-                : state.config.MAP_STYLE_LIGHT;
-            // Set the new style directly on the MapLibre map
-            state.appState.map.setStyle(styleUrl);
-        }
+        const map = state.appState && state.appState.map;
+        if (map) map.setStyle(_styleUrlFor(currentTheme));
+        if (state.onThemeChange) state.onThemeChange(currentTheme);
+    }
 
-        // Call optional callback for additional theme change handling
-        if (state.onThemeChange) {
-            state.onThemeChange(theme);
-        }
+    /** Loads the map-label font before MapLibre rasterizes its glyph atlas. */
+    async function loadMapFont() {
+        if (!(document.fonts && document.fonts.load)) return;
+        try {
+            await document.fonts.load('400 14px "Inter Regular"');
+        } catch (e) { /* fall back to the stack's next font */ }
     }
 
     /**
@@ -95,8 +81,9 @@ const ThemeManager = (() => {
      * Should be called during app startup before map initialization
      */
     function initTheme() {
-        const savedTheme = localStorage.getItem('theme') || 'dark';
-        setTheme(savedTheme, null, null);
+        const savedTheme = Utils.SafeStorage.getItem('theme') || 'dark';
+        setTheme(savedTheme);
+        Utils.SafeStorage.removeItem('protoFlags');
     }
 
     /**
@@ -106,10 +93,7 @@ const ThemeManager = (() => {
      * @returns {string} Style URL for current theme
      */
     function getStyleUrlForCurrentTheme() {
-        const currentTheme = getCurrentTheme();
-        return currentTheme === 'dark'
-            ? state.config.MAP_STYLE_DARK
-            : state.config.MAP_STYLE_LIGHT;
+        return _styleUrlFor(getCurrentTheme());
     }
 
     // ========================================
@@ -121,24 +105,7 @@ const ThemeManager = (() => {
      * @returns {string} Current theme ('dark' or 'light')
      */
     function getCurrentTheme() {
-        // Always read from DOM as source of truth
-        return document.documentElement.getAttribute('data-theme') || 'dark';
-    }
-
-    /**
-     * Checks if dark theme is currently active
-     * @returns {boolean} True if dark theme is active
-     */
-    function isDarkTheme() {
-        return getCurrentTheme() === 'dark';
-    }
-
-    /**
-     * Checks if light theme is currently active
-     * @returns {boolean} True if light theme is active
-     */
-    function isLightTheme() {
-        return getCurrentTheme() === 'light';
+        return Utils.getCurrentTheme();
     }
 
     // ========================================
@@ -149,7 +116,7 @@ const ThemeManager = (() => {
      * Initializes the ThemeManager module
      * @param {Object} config - Configuration object
      * @param {Object} config.appState - Reference to app state
-     * @param {Object} config.config - App configuration with MAP_TILE_URL_DARK and MAP_TILE_URL_LIGHT
+     * @param {Object} config.config - App configuration with MAP_STYLE_DARK and MAP_STYLE_LIGHT
      * @param {Function} [config.onThemeChange] - Optional callback when theme changes
      */
     function init(config) {
@@ -168,13 +135,11 @@ const ThemeManager = (() => {
         initTheme,
 
         // Theme management
-        setTheme,
         applyThemeChange,
+        loadMapFont,
         getStyleUrlForCurrentTheme,
 
         // Query functions
-        getCurrentTheme,
-        isDarkTheme,
-        isLightTheme
+        getCurrentTheme
     };
 })();

@@ -9,11 +9,20 @@ const Utils = (() => {
             .replace(/'/g, "&#039;");
     }
 
+    // Scratch element for decodeHtml, created lazily and reused so hot loops
+    // (Phase 2 transform, search-index build, popup renders) don't pay for a
+    // fresh <textarea> + HTML parse per string.
+    let _decodeTextarea = null;
+
     function decodeHtml(html) {
         if (typeof html !== 'string') return '';
-        const txt = document.createElement("textarea");
-        txt.innerHTML = html;
-        return txt.value;
+        // Entity references always contain '&', so other strings decode to
+        // themselves. (The parser would also normalize \r to \n, but exported
+        // data never contains bare carriage returns.)
+        if (!html.includes('&')) return html;
+        if (!_decodeTextarea) _decodeTextarea = document.createElement("textarea");
+        _decodeTextarea.innerHTML = html;
+        return _decodeTextarea.value;
     }
 
     function formatAndSanitize(text) {
@@ -36,15 +45,6 @@ const Utils = (() => {
         return string && (string.startsWith('http://') || string.startsWith('https://'));
     }
 
-    function formatDateForDisplay(timestamp) {
-        const date = new Date(Number(timestamp));
-        if (isNaN(date.getTime())) {
-            console.warn("Utils.formatDateForDisplay received an invalid timestamp:", timestamp);
-            return "Invalid Date";
-        }
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    }
-
     // Shared date/time formatting options
     const DATE_OPTIONS = { month: 'short', day: 'numeric' };
     const TIME_OPTIONS = { hour: 'numeric', minute: 'numeric', hour12: true };
@@ -62,17 +62,47 @@ const Utils = (() => {
             .replace(' ', '');
     }
 
-    function formatEventDateTimeCompactly(event) {
-        const occurrencesToDisplay = event.matching_occurrences || event.occurrences;
-        if (!event || !Array.isArray(occurrencesToDisplay) || occurrencesToDisplay.length === 0) {
-            return "Date/Time N/A";
+    /**
+     * Returns structured datetime data for an event, separating occurrences that
+     * match the active date filter from those that don't. The popup uses this to
+     * show matching dates prominently while keeping the rest accessible.
+     *
+     * @param {Object} event - Event with `occurrences` and optional `matching_occurrences`
+     * @returns {{matchingText: string, otherText: string, otherCount: number}}
+     */
+    function buildEventDateTime(event) {
+        const all = event && Array.isArray(event.occurrences) ? event.occurrences : null;
+        if (!all || all.length === 0) {
+            return { matchingText: 'Date/Time N/A', otherText: '', otherCount: 0 };
         }
 
-        if (occurrencesToDisplay.length === 1) {
-            return formatSingleOccurrence(occurrencesToDisplay[0]);
+        if (all.length === 1) {
+            return { matchingText: formatSingleOccurrence(all[0]), otherText: '', otherCount: 0 };
         }
 
-        return formatMultipleOccurrences(occurrencesToDisplay);
+        const matching = Array.isArray(event.matching_occurrences) ? event.matching_occurrences : all;
+        const matchingKeys = new Set(
+            matching
+                .filter(o => o.start instanceof Date && !isNaN(o.start))
+                .map(o => o.start.toISOString())
+        );
+
+        const matchingOccs = [];
+        const otherOccs = [];
+        for (const occ of all) {
+            if (!(occ.start instanceof Date) || isNaN(occ.start)) continue;
+            if (matchingKeys.has(occ.start.toISOString())) {
+                matchingOccs.push(occ);
+            } else {
+                otherOccs.push(occ);
+            }
+        }
+
+        return {
+            matchingText: matchingOccs.length > 0 ? formatMultipleOccurrences(matchingOccs) : '',
+            otherText: otherOccs.length > 0 ? formatMultipleOccurrences(otherOccs) : '',
+            otherCount: otherOccs.length
+        };
     }
 
     function formatSingleOccurrence(occurrence) {
@@ -113,23 +143,38 @@ const Utils = (() => {
     }
 
     function formatMultipleOccurrences(occurrences) {
-        const dateGroups = {};
+        const segments = [];        // ordered output segments
+        const groupByDate = {};     // dateKey -> segment, for merging single-day occurrences
 
         occurrences.forEach(occurrence => {
             const { start, end, originalStartTime, originalEndTime } = occurrence;
             if (!(start instanceof Date) || isNaN(start)) return;
 
-            const dateKey = start.toISOString().split('T')[0];
-            if (!dateGroups[dateKey]) {
-                dateGroups[dateKey] = { displayDate: start.toLocaleDateString('en-US', DATE_OPTIONS), times: new Set() };
+            const hasEnd = end instanceof Date && !isNaN(end);
+            const isMultiDay = hasEnd && start.toDateString() !== end.toDateString();
+
+            // Multi-day spans (e.g. exhibition runs) render as their own "start – end"
+            // range so the end date isn't lost when grouping by start date.
+            if (isMultiDay) {
+                segments.push({ text: formatSingleOccurrence(occurrence) });
+                return;
+            }
+
+            // Key by local calendar date so grouping matches the rendered
+            // displayDate (the ISO/UTC date is the next day for evening events).
+            const dateKey = start.toDateString();
+            let segment = groupByDate[dateKey];
+            if (!segment) {
+                segment = { displayDate: start.toLocaleDateString('en-US', DATE_OPTIONS), times: new Set() };
+                groupByDate[dateKey] = segment;
+                segments.push(segment);
             }
 
             const hasStartTime = originalStartTime && originalStartTime.trim() !== '';
-            const hasEndTime = end && originalEndTime && originalEndTime.trim() !== '';
-            const isSameDay = end && start.toDateString() === end.toDateString();
+            const hasEndTime = hasEnd && originalEndTime && originalEndTime.trim() !== '';
 
             let timeStr = '';
-            if (hasStartTime && hasEndTime && isSameDay) {
+            if (hasStartTime && hasEndTime) {
                 const startTime = formatTimeCompact(start);
                 const endTime = formatTimeCompact(end);
                 timeStr = (startTime !== endTime) ? `${startTime}–${endTime}` : startTime;
@@ -138,12 +183,15 @@ const Utils = (() => {
             }
 
             if (timeStr) {
-                dateGroups[dateKey].times.add(timeStr);
+                segment.times.add(timeStr);
             }
         });
 
-        return Object.values(dateGroups).map(group => {
-            return group.times.size > 0 ? `${group.displayDate}: ${Array.from(group.times).join(', ')}` : group.displayDate;
+        return segments.map(segment => {
+            if (segment.text) return segment.text;
+            return segment.times.size > 0
+                ? `${segment.displayDate}: ${Array.from(segment.times).join(', ')}`
+                : segment.displayDate;
         }).join('; ');
     }
 
@@ -166,26 +214,108 @@ const Utils = (() => {
         return { hours, minutes, seconds: 0 };
     }
 
-    function parseDateInCaracas(dateStr, timeStr) {
+    // The app's timezone, injected by build.js (window.__CITY__.timezone). Used to
+    // interpret event dates/times and "today" regardless of the user's local zone.
+    const APP_TIMEZONE = (typeof window !== 'undefined' && window.__CITY__ && window.__CITY__.timezone) || 'America/New_York';
+
+    // UTC offset (e.g. "-04:00") for APP_TIMEZONE at the given date. Driven by the
+    // IANA database via Intl, so it's correct for any zone's DST rules — not just US.
+    const _offsetFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: APP_TIMEZONE, timeZoneName: 'longOffset'
+    });
+    function getZoneOffset(date) {
+        const parts = _offsetFormatter.formatToParts(date);
+        const tzName = parts.find(p => p.type === 'timeZoneName');
+        const m = tzName && tzName.value.match(/GMT([+-]\d{2}:\d{2})/);
+        return m ? m[1] : '+00:00'; // "GMT" (no suffix) => UTC
+    }
+
+    // The zone offset depends only on the calendar date (tempDate is pinned to noon),
+    // so cache it per dateStr — parseDateInZone runs ~2x per occurrence in the Phase 2 merge.
+    const _zoneOffsetByDate = new Map();
+
+    function parseDateInZone(dateStr, timeStr) {
         if (!dateStr) return null;
-        const tempDate = new Date(dateStr.replace(/-/g, '/') + ' 12:00:00');
-        if (isNaN(tempDate.getTime())) return null;
+
+        let offset = _zoneOffsetByDate.get(dateStr);
+        if (offset === undefined) {
+            const tempDate = new Date(dateStr.replace(/-/g, '/') + ' 12:00:00');
+            if (isNaN(tempDate.getTime())) return null;
+            offset = getZoneOffset(tempDate);
+            _zoneOffsetByDate.set(dateStr, offset);
+        }
 
         const timeParts = parseTime(timeStr);
-        const isoString = `${dateStr}T${String(timeParts.hours).padStart(2, '0')}:${String(timeParts.minutes).padStart(2, '0')}:${String(timeParts.seconds).padStart(2, '0')}-04:00`;
+        const isoString = `${dateStr}T${String(timeParts.hours).padStart(2, '0')}:${String(timeParts.minutes).padStart(2, '0')}:${String(timeParts.seconds).padStart(2, '0')}${offset}`;
         const finalDate = new Date(isoString);
 
         return isNaN(finalDate.getTime()) ? null : finalDate;
     }
 
-    function isWindows() {
-        return navigator.platform.toLowerCase().includes('win');
+    // Calendar-day index (days since epoch) of a Date in APP_TIMEZONE. Lets hot
+    // paths bucket timestamps by local day with plain arithmetic instead of Intl
+    // formatting. The zone offset only changes at DST transitions, so it's
+    // cached per UTC day (probed at that day's noon UTC, like parseDateInZone);
+    // events within an hour of local midnight on a transition day may bucket
+    // one day off — harmless for ranking.
+    const MS_PER_DAY = 86400000;
+    const _dayOffsetMsByUtcDay = new Map();
+    function dayIndexInZone(date) {
+        const ms = date.getTime();
+        if (isNaN(ms)) return NaN;
+        const utcDay = Math.floor(ms / MS_PER_DAY);
+        let offsetMs = _dayOffsetMsByUtcDay.get(utcDay);
+        if (offsetMs === undefined) {
+            const probe = new Date(utcDay * MS_PER_DAY + MS_PER_DAY / 2);
+            const m = getZoneOffset(probe).match(/([+-])(\d{2}):(\d{2})/);
+            offsetMs = m ? (m[1] === '-' ? -1 : 1) * ((+m[2]) * 60 + +m[3]) * 60000 : 0;
+            _dayOffsetMsByUtcDay.set(utcDay, offsetMs);
+        }
+        return Math.floor((ms + offsetMs) / MS_PER_DAY);
+    }
+
+    // Today's date in the app timezone as YYYY-MM-DD. Used to pick the matching
+    // events.{day}.json chunk regardless of the user's local timezone.
+    const _todayFormatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: APP_TIMEZONE,
+        year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+    function getTodayInZone() {
+        return _todayFormatter.format(new Date());
+    }
+
+    // Current UI theme. Reads the DOM as source of truth ('data-theme' is set
+    // by ThemeManager); defaults to 'dark' before any theme is applied.
+    function getCurrentTheme() {
+        return document.documentElement.getAttribute('data-theme') || 'dark';
+    }
+
+    // Canonical mobile-layout check. <= so exactly 768px counts as mobile,
+    // matching the CSS media queries (max-width: 768px).
+    function isMobileLayout() {
+        const bp = (typeof Constants !== 'undefined' && Constants.UI && Constants.UI.MOBILE_BREAKPOINT) || 768;
+        return window.innerWidth <= bp;
     }
 
     function isCountryFlagEmoji(str) {
         if (!str || str.length < 2) return false;
         const codePoints = [...str].map(char => char.codePointAt(0));
         return codePoints.every(cp => cp >= 0x1F1E6 && cp <= 0x1F1FF);
+    }
+
+    // MapLibre's SDF label font has no regional-indicator glyphs. DOM titles
+    // retain their flags and render them through the shared artwork renderer.
+    const COUNTRY_FLAG_RE = /[\u{1F1E6}-\u{1F1FF}]/gu;
+
+    /** Remove flags from map labels and tidy the whitespace left behind. */
+    function stripCountryFlagEmoji(str) {
+        if (!str) return str;
+        const stripped = str.replace(COUNTRY_FLAG_RE, '');
+        if (stripped === str) return str;    // no flags present — leave untouched
+        return stripped
+            .replace(/\s+/g, ' ')            // collapse the gaps the flags left
+            .replace(/\s+([,.!?;:])/g, '$1') // drop space orphaned before punctuation
+            .trim();
     }
 
     /**
@@ -243,23 +373,6 @@ const Utils = (() => {
     }
 
     /**
-     * Creates a throttled function that only invokes func at most once per every wait milliseconds
-     * @param {Function} func - Function to throttle
-     * @param {number} wait - Delay in milliseconds
-     * @returns {Function} Throttled function
-     */
-    function throttle(func, wait) {
-        let inThrottle;
-        return function executedFunction(...args) {
-            if (!inThrottle) {
-                func.apply(this, args);
-                inThrottle = true;
-                setTimeout(() => inThrottle = false, wait);
-            }
-        };
-    }
-
-    /**
      * Calculates distance between two lat/lng points using Haversine formula
      * @param {Object} point1 - First point {lat, lng}
      * @param {Object} point2 - Second point {lat, lng}
@@ -278,6 +391,18 @@ const Utils = (() => {
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
         return R * c;
+    }
+
+    /**
+     * Parses a "lat,lng" location key into coordinates.
+     * @param {string} key - Location key in "lat,lng" format
+     * @returns {{lat: number, lng: number}|null} Coordinates, or null when the
+     *   key is missing or malformed (either part not a finite number)
+     */
+    function parseLocationKey(key) {
+        if (typeof key !== 'string') return null;
+        const [lat, lng] = key.split(',').map(Number);
+        return (Number.isFinite(lat) && Number.isFinite(lng)) ? { lat, lng } : null;
     }
 
     /**
@@ -334,23 +459,194 @@ const Utils = (() => {
         }
     };
 
+    // ========================================
+    // ORGANIZER PSEUDO-TAGS
+    // ========================================
+    // Organizers participate in the tag filter system as namespaced pseudo-tags
+    // (e.g. "organizer:123"). They ride the same tagStates / eventTagIndex /
+    // color machinery as curated tags, but are kept out of the curated hierarchy
+    // so they never appear in the browsable tag tree. The name lookup below lets
+    // getTagDisplayName() render an organizer chip with the organizer's real name.
+
+    const ORGANIZER_TAG_PREFIX = 'organizer:';
+    let organizerNameMap = {};
+
+    /** Populates the organizer-name lookup from the loaded organizers map. */
+    function registerOrganizers(organizersById) {
+        organizerNameMap = {};
+        if (!organizersById) return;
+        for (const [id, org] of Object.entries(organizersById)) {
+            if (org && org.name) organizerNameMap[ORGANIZER_TAG_PREFIX + id] = org.name;
+        }
+    }
+
+    /** Builds the pseudo-tag key for an organizer id, or null if id is absent. */
+    function makeOrganizerTag(id) {
+        return (id === null || id === undefined || id === '') ? null : ORGANIZER_TAG_PREFIX + id;
+    }
+
+    /** True if the tag string is an organizer pseudo-tag. */
+    function isOrganizerTag(tag) {
+        return typeof tag === 'string' && tag.startsWith(ORGANIZER_TAG_PREFIX);
+    }
+
+    /** True if the pseudo-tag resolves to a known (loaded) organizer. */
+    function isKnownOrganizerTag(tag) {
+        return Object.prototype.hasOwnProperty.call(organizerNameMap, tag);
+    }
+
+    /**
+     * Returns the organizer pseudo-tags for an event (one per source website in
+     * event.organizer_ids). A merged event can have several. Order is preserved
+     * (primary first). Includes unknown/aggregator ids — callers that render
+     * chips should filter with isKnownOrganizerTag.
+     */
+    function organizerTagsForEvent(event) {
+        const ids = event && event.organizer_ids;
+        if (!Array.isArray(ids) || ids.length === 0) return [];
+        return ids.map(id => ORGANIZER_TAG_PREFIX + id);
+    }
+
+    /**
+     * Three-tier tag matching rule shared by FilterManager and
+     * PopupContentBuilder: forbidden excludes, required must all match,
+     * selected needs at least one (only checked when nothing is required).
+     * Tag lists are passed separately (event, location, organizer) so hot
+     * callers can reuse existing arrays without concatenating.
+     */
+    function eventFilterTags(event, location) {
+        return new Set([...(event.tags || []), ...(location?.tags || []), ...organizerTagsForEvent(event)]);
+    }
+
+    function matchesTagSets(eventTags, locationTags, orgTags, selectedTagsSet, requiredTagsSet, forbiddenTagsSet) {
+        if (forbiddenTagsSet.size > 0) {
+            if (eventTags.some(t => forbiddenTagsSet.has(t))
+                || locationTags.some(t => forbiddenTagsSet.has(t))
+                || orgTags.some(t => forbiddenTagsSet.has(t))) {
+                return false;
+            }
+        }
+        if (requiredTagsSet.size > 0) {
+            for (const tag of requiredTagsSet) {
+                if (!eventTags.includes(tag) && !locationTags.includes(tag) && !orgTags.includes(tag)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (selectedTagsSet.size > 0) {
+            return eventTags.some(t => selectedTagsSet.has(t))
+                || locationTags.some(t => selectedTagsSet.has(t))
+                || orgTags.some(t => selectedTagsSet.has(t));
+        }
+        return true;
+    }
+
+    /**
+     * Returns the human-readable form of a tag name, stripping any
+     * disambiguator suffix (everything after " / "). The internal tag
+     * name (with disambiguator) remains the unique identifier — only
+     * rendered text is shortened. e.g. "Avant Garde / Music" → "Avant Garde".
+     * Organizer pseudo-tags resolve to the organizer's display name.
+     * Venue browsing groups use the configured public label.
+     */
+    function getTagDisplayName(tag) {
+        if (!tag) return tag;
+        if (organizerNameMap[tag]) return organizerNameMap[tag];
+        if (tag.startsWith('venue:')) tag = tag.slice(6);
+        const venueLabel = globalThis.__CITY__?.venueSelector?.labels?.[tag];
+        if (venueLabel) return venueLabel;
+        const idx = tag.indexOf(' / ');
+        return idx === -1 ? tag : tag.slice(0, idx);
+    }
+
+    /**
+     * Appends standard chip content to an element: an aria-hidden
+     * .chip-emoji span (when emoji is truthy) followed by the tag's
+     * display name as a text node.
+     */
+    function appendChipContent(el, emoji, tag, { tagIcon = true, iconRecord = null } = {}) {
+        const options = { className: 'chip-emoji event-icon', onAccent: color => {
+            const resolved = tagIcon ? TagColorManager.acceptTagIconColor(tag, color) : color;
+            if (resolved && (el.classList.contains('state-selected') || el.classList.contains('state-required'))) {
+                el.style.setProperty('--chip-color', resolved);
+            }
+        } };
+        if (emoji || iconRecord?.icon_id) el.appendChild(tagIcon
+            ? IconManager.createTagElement(tag, emoji, options)
+            : IconManager.createElement(iconRecord || { emoji }, options));
+        el.appendChild(document.createTextNode(getTagDisplayName(tag)));
+    }
+
+    // ========================================
+    // TAG-STATE PARTITIONING
+    // ========================================
+
+    /**
+     * Partitions a tagStates object ({tagName: 'selected'|'required'|'forbidden'|...})
+     * into per-state arrays and Sets in a single pass.
+     *
+     * Convention (load-bearing — do not "fix"): the selectedTags ARRAY excludes
+     * required tags (FilterManager gates on requiredTags separately), while
+     * selectedTagsSet INCLUDES required tags (popup/label sorting counts
+     * required-tag matches toward hasActiveTagFilters and selectedTagMatchCount).
+     *
+     * @param {Object} tagStates - Tag states object {tagName: state}
+     * @returns {{selectedTags: Array, requiredTags: Array, forbiddenTags: Array,
+     *            selectedTagsSet: Set, requiredTagsSet: Set, forbiddenTagsSet: Set}}
+     */
+    function partitionTagStates(tagStates) {
+        const selectedTags = [];
+        const requiredTags = [];
+        const forbiddenTags = [];
+        const selectedTagsSet = new Set();
+        const requiredTagsSet = new Set();
+        const forbiddenTagsSet = new Set();
+        for (const tag in tagStates) {
+            const s = tagStates[tag];
+            if (s === 'selected') {
+                selectedTags.push(tag);
+                selectedTagsSet.add(tag);
+            } else if (s === 'required') {
+                requiredTags.push(tag);
+                requiredTagsSet.add(tag);
+                selectedTagsSet.add(tag);
+            } else if (s === 'forbidden') {
+                forbiddenTags.push(tag);
+                forbiddenTagsSet.add(tag);
+            }
+        }
+        return { selectedTags, requiredTags, forbiddenTags, selectedTagsSet, requiredTagsSet, forbiddenTagsSet };
+    }
+
     return {
         escapeHtml,
         decodeHtml,
         formatAndSanitize,
+        getTagDisplayName,
+        appendChipContent,
+        partitionTagStates,
+        registerOrganizers,
+        makeOrganizerTag,
+        isOrganizerTag,
+        isKnownOrganizerTag,
+        organizerTagsForEvent,
+        matchesTagSets,
+        eventFilterTags,
         isValidUrl,
-        formatDateForDisplay,
-        formatEventDateTimeCompactly,
-        parseDateInCaracas,
-        // Legacy alias for backward compatibility
-        parseDateInNewYork: parseDateInCaracas,
-        isWindows,
+        buildEventDateTime,
+        parseDateInZone,
+        dayIndexInZone,
+        getTodayInZone,
+        getCurrentTheme,
+        isMobileLayout,
         isCountryFlagEmoji,
+        stripCountryFlagEmoji,
         normalizeForSearch,
         getDisplayName,
         debounce,
-        throttle,
         calculateHaversineDistance,
+        parseLocationKey,
         SafeStorage,
     };
 })();

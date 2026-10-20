@@ -21,7 +21,7 @@ const URLParams = (() => {
         // Tag validation
         MAX_TAG_LENGTH: 100,
         MAX_TAGS_COUNT: 50,
-        TAG_PATTERN: /^[a-zA-Z0-9\s\-_&]+$/,  // Alphanumeric, spaces, hyphens, underscores, ampersands
+        TAG_PATTERN: /^[a-zA-Z0-9\s\-_&:]+$/,  // Alphanumeric, spaces, hyphens, underscores, ampersands, colons (organizer:<id> pseudo-tags)
 
         // Input length limits (prevent DoS)
         MAX_PARAM_LENGTH: 1000
@@ -40,82 +40,24 @@ const URLParams = (() => {
     function parse() {
         const urlParams = new URLSearchParams(window.location.search);
         const params = {};
+        // Structured links are decoded by FomoQueries; retain the URL until then.
+        if (urlParams.has("qv") || urlParams.has("q")) return params;
         const warnings = [];
 
-        // Parse latitude
-        const lat = urlParams.get('lat');
-        if (lat !== null) {
-            if (lat.length > VALIDATION.MAX_PARAM_LENGTH) {
-                warnings.push('Latitude parameter too long, ignoring');
-            } else {
-                const latNum = parseFloat(lat);
-                if (!isNaN(latNum) && latNum >= VALIDATION.LAT_MIN && latNum <= VALIDATION.LAT_MAX) {
-                    params.lat = latNum;
-                } else if (!isNaN(latNum)) {
-                    warnings.push(`Invalid latitude value: ${lat} (must be between ${VALIDATION.LAT_MIN} and ${VALIDATION.LAT_MAX})`);
-                }
-            }
-        }
+        const lat = readNumber(urlParams, warnings, 'lat', 'Latitude', VALIDATION.LAT_MIN, VALIDATION.LAT_MAX, parseFloat);
+        if (lat !== undefined) params.lat = lat;
 
-        // Parse longitude
-        const lng = urlParams.get('lng');
-        if (lng !== null) {
-            if (lng.length > VALIDATION.MAX_PARAM_LENGTH) {
-                warnings.push('Longitude parameter too long, ignoring');
-            } else {
-                const lngNum = parseFloat(lng);
-                if (!isNaN(lngNum) && lngNum >= VALIDATION.LNG_MIN && lngNum <= VALIDATION.LNG_MAX) {
-                    params.lng = lngNum;
-                } else if (!isNaN(lngNum)) {
-                    warnings.push(`Invalid longitude value: ${lng} (must be between ${VALIDATION.LNG_MIN} and ${VALIDATION.LNG_MAX})`);
-                }
-            }
-        }
+        const lng = readNumber(urlParams, warnings, 'lng', 'Longitude', VALIDATION.LNG_MIN, VALIDATION.LNG_MAX, parseFloat);
+        if (lng !== undefined) params.lng = lng;
 
-        // Parse zoom
-        const zoom = urlParams.get('zoom');
-        if (zoom !== null) {
-            if (zoom.length > VALIDATION.MAX_PARAM_LENGTH) {
-                warnings.push('Zoom parameter too long, ignoring');
-            } else {
-                const zoomNum = parseInt(zoom, 10);
-                if (!isNaN(zoomNum) && zoomNum >= VALIDATION.ZOOM_MIN && zoomNum <= VALIDATION.ZOOM_MAX) {
-                    params.zoom = zoomNum;
-                } else if (!isNaN(zoomNum)) {
-                    warnings.push(`Invalid zoom value: ${zoom} (must be between ${VALIDATION.ZOOM_MIN} and ${VALIDATION.ZOOM_MAX})`);
-                }
-            }
-        }
+        const zoom = readNumber(urlParams, warnings, 'zoom', 'Zoom', VALIDATION.ZOOM_MIN, VALIDATION.ZOOM_MAX, parseFloat);
+        if (zoom !== undefined) params.zoom = zoom;
 
-        // Parse start date
-        const start = urlParams.get('start');
-        if (start !== null) {
-            if (start.length > VALIDATION.MAX_PARAM_LENGTH) {
-                warnings.push('Start date parameter too long, ignoring');
-            } else {
-                const result = parseDate(start);
-                if (result.date) {
-                    params.start = result.date;
-                } else if (result.error) {
-                    warnings.push(`Invalid start date: ${result.error}`);
-                }
-            }
-        }
+        const start = readDate(urlParams, warnings, 'start', 'Start date');
+        if (start !== undefined) params.start = start;
 
-        // Parse end date
-        const end = urlParams.get('end');
-        if (end !== null) {
-            if (end.length > VALIDATION.MAX_PARAM_LENGTH) {
-                warnings.push('End date parameter too long, ignoring');
-            } else {
-                const result = parseDate(end);
-                if (result.date) {
-                    params.end = result.date;
-                } else if (result.error) {
-                    warnings.push(`Invalid end date: ${result.error}`);
-                }
-            }
-        }
+        const end = readDate(urlParams, warnings, 'end', 'End date');
+        if (end !== undefined) params.end = end;
 
         // Parse tags (comma-separated)
         const tags = urlParams.get('tags');
@@ -133,12 +75,70 @@ const URLParams = (() => {
             }
         }
 
+        if (urlParams.has('formats')) {
+            params.formats = (urlParams.get('formats') || '').slice(0, 2000).split(',').map(t => t.trim()).filter(Boolean);
+        }
+
+        if (urlParams.has('neighborhoods')) {
+            try {
+                const raw = urlParams.get('neighborhoods');
+                if (raw.length > 30000) throw new Error('Neighborhood selection too long');
+                const values = JSON.parse(raw);
+                if (!Array.isArray(values) || !values.every(v => typeof v === 'string')) throw new Error('Invalid neighborhoods');
+                params.neighborhoods = values;
+            } catch { warnings.push('Invalid neighborhood selection, ignoring'); }
+        }
+
         // Log warnings if any validation issues occurred
         if (warnings.length > 0) {
             console.warn('URL parameter validation warnings:', warnings);
         }
 
         return params;
+    }
+
+    /**
+     * Read and validate a numeric URL parameter.
+     * Returns the parsed number, or undefined when the param is absent, too long,
+     * or out of range. Unparseable (NaN) input is silently ignored — only
+     * parseable-but-out-of-range values produce a warning.
+     */
+    function readNumber(urlParams, warnings, key, label, min, max, parseFn) {
+        const raw = urlParams.get(key);
+        if (raw === null) return undefined;
+        if (raw.length > VALIDATION.MAX_PARAM_LENGTH) {
+            warnings.push(`${label} parameter too long, ignoring`);
+            return undefined;
+        }
+        const num = parseFn(raw);
+        if (!isNaN(num) && num >= min && num <= max) {
+            return num;
+        }
+        if (!isNaN(num)) {
+            warnings.push(`Invalid ${label.toLowerCase()} value: ${raw} (must be between ${min} and ${max})`);
+        }
+        return undefined;
+    }
+
+    /**
+     * Read and validate a YYYY-MM-DD date URL parameter via parseDate().
+     * Returns a Date, or undefined when the param is absent, too long, or invalid.
+     */
+    function readDate(urlParams, warnings, key, label) {
+        const raw = urlParams.get(key);
+        if (raw === null) return undefined;
+        if (raw.length > VALIDATION.MAX_PARAM_LENGTH) {
+            warnings.push(`${label} parameter too long, ignoring`);
+            return undefined;
+        }
+        const result = parseDate(raw);
+        if (result.date) {
+            return result.date;
+        }
+        if (result.error) {
+            warnings.push(`Invalid ${label.toLowerCase()}: ${result.error}`);
+        }
+        return undefined;
     }
 
     /**
@@ -227,54 +227,6 @@ const URLParams = (() => {
     }
 
     /**
-     * Update the URL with current parameters without reloading the page
-     */
-    function update(params) {
-        const urlParams = new URLSearchParams(window.location.search);
-
-        // Update or remove lat/lng
-        if (params.lat !== undefined && params.lng !== undefined) {
-            urlParams.set('lat', params.lat.toFixed(5));
-            urlParams.set('lng', params.lng.toFixed(5));
-        } else {
-            urlParams.delete('lat');
-            urlParams.delete('lng');
-        }
-
-        // Update or remove zoom
-        if (params.zoom !== undefined) {
-            urlParams.set('zoom', params.zoom.toString());
-        } else {
-            urlParams.delete('zoom');
-        }
-
-        // Update or remove start date
-        if (params.start !== undefined && params.start instanceof Date) {
-            urlParams.set('start', formatDate(params.start));
-        } else {
-            urlParams.delete('start');
-        }
-
-        // Update or remove end date
-        if (params.end !== undefined && params.end instanceof Date) {
-            urlParams.set('end', formatDate(params.end));
-        } else {
-            urlParams.delete('end');
-        }
-
-        // Update or remove tags
-        if (params.tags !== undefined && Array.isArray(params.tags) && params.tags.length > 0) {
-            urlParams.set('tags', params.tags.join(','));
-        } else {
-            urlParams.delete('tags');
-        }
-
-        // Update the URL without reloading
-        const newUrl = urlParams.toString() ? `${window.location.pathname}?${urlParams.toString()}` : window.location.pathname;
-        window.history.replaceState({}, '', newUrl);
-    }
-
-    /**
      * Format a Date object as YYYY-MM-DD
      */
     function formatDate(date) {
@@ -306,7 +258,7 @@ const URLParams = (() => {
 
         urlParams.set('lat', params.lat.toFixed(5));
         urlParams.set('lng', params.lng.toFixed(5));
-        urlParams.set('zoom', params.zoom.toString());
+        urlParams.set('zoom', params.zoom.toFixed(2));
 
         if (params.start && params.end) {
             urlParams.set('start', formatDate(params.start));
@@ -317,12 +269,14 @@ const URLParams = (() => {
             urlParams.set('tags', params.tags.join(','));
         }
 
+        if (Array.isArray(params.formats)) urlParams.set('formats', params.formats.join(','));
+        if (Array.isArray(params.neighborhoods)) urlParams.set('neighborhoods', JSON.stringify(params.neighborhoods));
         return `${baseUrl}?${urlParams.toString()}`;
     }
 
     return {
         parse,
-        update,
+        parseDate,
         formatDate,
         generateShareUrl
     };

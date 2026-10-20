@@ -23,7 +23,7 @@
     background-color: color-mix(in srgb, var(--primary-bg) 85%, transparent);
     backdrop-filter: blur(3px);
     border: 1px solid var(--border-color);
-    border-radius: 22px;
+    border-radius: var(--radius-modal);
     box-sizing: border-box;
     margin-top: 12px;
     margin-left: 12px;
@@ -50,10 +50,17 @@
     align-items: center;
     justify-content: center;
     margin-top: 0px;
-    padding: 5px 10px 5px 7px;
-    background-color: transparent;
-    border: 0px solid var(--tertiary-bg);
-    border-radius: 5px;
+    /* Pill treatment matching the search bar / date picker: same bg/border/
+       radius, and padding + logo height chosen so the pill height matches the
+       inputs' (6px pad + 1.2 × 1.08em line ≈ 35px). Horizontal padding is
+       asymmetric on purpose: the torch's vertical shaft sits at ~46% of the
+       image width (the flame flares right), so extra left padding nudges the
+       image halfway toward having the shaft axis on the pill's centerline. */
+    padding: 3px 9.1px 3px 9.7px;
+    background: color-mix(in srgb, var(--primary-bg) 85%, transparent);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
     cursor: pointer;
 }
 
@@ -63,7 +70,7 @@
 }
 
 #logo {
-    height: 34px;
+    height: 27px;
     display: block;
     pointer-events: none;
 }
@@ -73,42 +80,58 @@
     top: 100%;
     left: 0;
     margin-top: 6px;
-    background-color: var(--secondary-bg);
-    border-radius: 5px;
-    box-shadow: var(--popup-shadow);
-    min-width: 216px;
+    min-width: 180px;
     z-index: var(--z-panel-menu);
     overflow: hidden;
+}
+
+#logo-menu,
+:is(#format-selector-panel, #neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel) {
+    /* Same surface treatment as the logo / search / date picker pills */
+    background: color-mix(in srgb, var(--primary-bg) 85%, transparent);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    box-shadow: var(--popup-shadow);
 }
 
 #logo-menu.logo-menu-hidden {
     display: none;
 }
 
+/* Items match the search/date inputs' typography (size, secondary color,
+   tight tracking) and brighten to primary text on hover like the chips. */
 #logo-menu a,
-#logo-menu button {
+#logo-menu button,
+:is(#format-selector-panel, #neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel) label {
     display: block;
     width: 100%;
-    padding: 12px 18px;
+    padding: 8px 14px;
     text-decoration: none;
-    color: var(--primary-text);
+    color: var(--secondary-text);
     background: none;
     border: none;
     text-align: left;
-    font-family: var(--font-family);
-    font-size: 1.14em;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 1.08em;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
     cursor: pointer;
     transition: background-color 0.2s ease;
 }
 
 #logo-menu a:hover,
-#logo-menu button:hover {
+#logo-menu button:hover,
+:is(#format-selector-panel, #neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel) label:hover {
     background-color: var(--tertiary-bg);
+    color: var(--primary-text);
 }
 
 #logo-menu a:focus-visible,
 #logo-menu button:focus-visible {
     background-color: var(--tertiary-bg);
+    color: var(--primary-text);
     outline: 2px solid var(--accent-color);
     outline-offset: -2px;
 }
@@ -116,6 +139,10 @@
 #filter-panel > * {
     transition: opacity 0.15s ease-out;
     min-width: 0;
+}
+
+#filter-panel.sections-hidden {
+    height: auto;
 }
 
 #filter-panel.collapsed {
@@ -129,7 +156,7 @@
 }
 
 .panel-header h2 {
-    font-family: var(--font-family);
+    font-family: var(--font-display);
     color: var(--accent-color);
     margin-top: 0;
     text-align: center;
@@ -159,10 +186,10 @@
 #filter-container {
     display: flex;
     flex-direction: column;
-    padding-left: 6px;
-    padding-right: 6px;
-    margin-bottom: 6px;
-    gap: 6px;
+    padding-left: 0;
+    padding-right: 0;
+    margin-bottom: 2px;
+    gap: 3px;
     flex-shrink: 0;
 }
 
@@ -173,28 +200,14 @@
     gap: 12px;
 }
 
-#selected-tags-display {
-    display: none;
-    flex-wrap: wrap;
-    gap: 5px;
-    padding: 0px 0;
+/* Inside the controls row the .filter-group margin would skew vertical
+   centering (the row centers margin boxes); spacing there comes from the
+   flex gap instead. */
+#filter-container > div:first-child .filter-group {
+    margin-bottom: 0;
 }
 
-/* Implicit/related tags in selected tags display */
-#selected-tags-display .state-implicit {
-    opacity: 0.7;
-}
-
-#selected-tags-display .state-implicit:hover {
-    opacity: 1;
-}
-
-/* Add/remove related tags buttons */
-#selected-tags-display .add-related-tags-button,
-#selected-tags-display .remove-related-tags-button {
-    min-width: 34px;
-    padding: 2px 10px;
-}
+/* Chip bar: selected tags + top unselected curated tags */
 
 #date-filter-container {
     display: flex;
@@ -224,7 +237,7 @@
     background-color: transparent;
     flex-shrink: 0;
     border: 0px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: var(--radius-card);
     padding: 2px;
     margin-bottom: 14px;
 }
@@ -233,11 +246,77 @@
     padding: 7px;
 }
 
+/* === Desktop event list view (shown in the left sheet when the search box is
+   empty). Reuses .popup-event-card* styles from popups.css. === */
+.list-view-scroll {
+    display: flex;
+    flex-direction: column;
+    /* Match the popup's text rhythm (.maplibre-popup-content) */
+    line-height: 1.1;
+}
+
+/* No separator lines between events. */
+.list-view-scroll .popup-event-card {
+    padding: 8px 6px;
+    border-radius: var(--radius-btn-lg);
+}
+
+.list-view-scroll .popup-event-card:hover {
+    background-color: var(--tertiary-bg);
+}
+
+/* Expanded-popup-style colors, matching the popup's expanded event card
+   exactly: full vivid accent for the title, primary text for the description
+   preview, and the popup's compact 1.1 text rhythm. */
+.list-view-scroll .popup-event-card-name {
+    color: var(--popup-accent-vivid, var(--summary-open));
+    /* One line per title; long names ellipsize */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* Smaller than the popup's 1em title */
+    font-size: 0.85em;
+}
+
+/* Emoji shrinks with the title (popup's 1.3em × 0.8) and sits on the title's
+   baseline instead of the popup's top alignment. */
+.list-view-scroll .popup-event-card-header {
+    align-items: baseline;
+}
+
+.list-view-scroll .popup-event-emoji {
+    font-size: 1.04em;
+}
+
+.list-view-scroll .popup-event-card:hover .popup-event-card-name {
+    color: var(--popup-accent-vivid-hover, var(--summary-open-hover));
+}
+
+.list-view-scroll .popup-event-card-preview {
+    color: var(--primary-text);
+    font-size: 0.8em;
+    line-height: 1.1;
+    margin-top: 2px;
+}
+
+/* Keep popups.css's hover rule (which dims the preview back to
+   secondary-text) from overriding the brighter list styling. */
+.list-view-scroll .popup-event-card:hover .popup-event-card-preview {
+    color: var(--primary-text);
+}
+
+.list-view-footer {
+    text-align: center;
+    font-size: 0.8em;
+    color: var(--secondary-text);
+    padding: 10px 4px 4px;
+}
+
 .calendar-icon,
 .location-icon,
 .search-icon {
     position: absolute;
-    left: 12px;
+    left: 6px;
     top: 50%;
     transform: translateY(-50%);
     pointer-events: none;
@@ -257,19 +336,21 @@
     width: auto;
     white-space: nowrap;
     font-family: var(--font-family);
-    font-size: 1.14em;
-    padding-left: 42px;
-    padding-right: 7px;
+    font-size: 1.08em;
+    letter-spacing: -0.03em;
+    padding-left: 27px;
+    padding-right: 12px;
 }
 
 #date-picker,
 #geotag-search-input,
 #omni-search-input {
-    padding: 6px 6px 6px 33px;
-    background-color: transparent;
+    padding: 6px 12px 6px 27px;
+    background: color-mix(in srgb, var(--primary-bg) 85%, transparent);
+    backdrop-filter: blur(8px);
     border: 1px solid var(--border-color);
     color: var(--secondary-text);
-    border-radius: 10px;
+    border-radius: var(--radius-pill);
     box-sizing: border-box;
     font-family: var(--font-family);
     font-size: 1.08em;
@@ -308,11 +389,17 @@
 /* Third-party date picker component - customized to match app theme */
 .flatpickr-calendar {
     background: var(--secondary-bg);
-    border-radius: 5px;
+    border-radius: var(--radius-xs);
     box-shadow: var(--popup-shadow);
     border: 0;
     color: var(--primary-text);
     font-size: 1.1em;
+}
+
+/* Anchor the absolutely-positioned prev/next arrows to the month header row,
+   not the calendar top — otherwise they overlap the injected presets row. */
+.flatpickr-months {
+    position: relative;
 }
 
 .flatpickr-months .flatpickr-month {
@@ -347,8 +434,8 @@ span.flatpickr-day.nextMonthDay {
 span.flatpickr-day:hover,
 span.flatpickr-day.prevMonthDay:hover,
 span.flatpickr-day.nextMonthDay:hover {
-    background: var(--accent-hover);
-    border-color: var(--accent-hover);
+    background: var(--accent-color);
+    border-color: var(--accent-color);
     color: var(--calendar-day-hover-text);
 }
 
@@ -358,6 +445,35 @@ span.flatpickr-day.endRange {
     background: var(--accent-color);
     border-color: var(--accent-color);
     color: var(--calendar-day-selected-text);
+}
+
+/* Higher-specificity flatpickr defaults (selected/range while hovered,
+   focused, also inRange, or on a prev/next-month edge) otherwise leak
+   flatpickr's default blue (#569ff7). Match its specificity with var(). */
+span.flatpickr-day.selected:hover,
+span.flatpickr-day.selected:focus,
+span.flatpickr-day.startRange:hover,
+span.flatpickr-day.startRange:focus,
+span.flatpickr-day.endRange:hover,
+span.flatpickr-day.endRange:focus,
+span.flatpickr-day.selected.prevMonthDay,
+span.flatpickr-day.selected.nextMonthDay,
+span.flatpickr-day.startRange.prevMonthDay,
+span.flatpickr-day.startRange.nextMonthDay,
+span.flatpickr-day.endRange.prevMonthDay,
+span.flatpickr-day.endRange.nextMonthDay,
+span.flatpickr-day.startRange.inRange,
+span.flatpickr-day.endRange.inRange {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: var(--calendar-day-selected-text);
+}
+
+/* Connector shadow between adjacent start/end range days */
+span.flatpickr-day.selected.startRange + .endRange:not(:nth-child(7n+1)),
+span.flatpickr-day.startRange.startRange + .endRange:not(:nth-child(7n+1)),
+span.flatpickr-day.endRange.startRange + .endRange:not(:nth-child(7n+1)) {
+    box-shadow: -10px 0 0 var(--accent-color);
 }
 
 span.flatpickr-day.inRange,
@@ -373,7 +489,7 @@ span.flatpickr-day.today {
 }
 
 span.flatpickr-day.today:hover {
-    background: var(--accent-hover);
+    background: var(--accent-color);
     color: var(--calendar-day-today-hover-text);
 }
 
@@ -394,6 +510,180 @@ span.flatpickr-weekday {
     font-weight: bold;
 }
 
+/* === Compact layout === */
+/* Trim flatpickr's generous default whitespace without changing font size.
+   Defaults: 307.875px grid, 39px-tall day cells, 28px weekday + 34px month
+   header rows. Widths matched to 7×36px so cells leave no leftover gap. */
+.flatpickr-calendar,
+.flatpickr-days,
+.dayContainer {
+    width: 252px;
+    min-width: 252px;
+    max-width: 252px;
+}
+
+span.flatpickr-day {
+    height: 32px;
+    line-height: 32px;
+    max-width: 36px;
+}
+
+.flatpickr-weekdays {
+    height: 22px;
+}
+
+span.flatpickr-weekday {
+    height: 22px;
+    line-height: 22px;
+}
+
+.flatpickr-months .flatpickr-month,
+.flatpickr-months .flatpickr-prev-month,
+.flatpickr-months .flatpickr-next-month {
+    height: 30px;
+}
+
+.flatpickr-months .flatpickr-prev-month,
+.flatpickr-months .flatpickr-next-month {
+    padding: 7px 10px;
+}
+
+.flatpickr-current-month {
+    padding-top: 4px;
+}
+
+/* Date preset buttons above calendar */
+.flatpickr-presets {
+    display: flex;
+    gap: 6px;
+    padding: 8px 8px 4px;
+}
+
+.flatpickr-preset-btn {
+    flex: 1;
+    padding: 5px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-btn);
+    background: transparent;
+    color: var(--secondary-text);
+    font-family: var(--font-family);
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+
+.flatpickr-preset-btn:hover {
+    background: var(--tertiary-bg);
+    color: var(--primary-text);
+}
+
+.flatpickr-preset-btn.active {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: var(--calendar-day-selected-text);
+}
+
+/* === Desktop Top Bar Layout === */
+/* On desktop, the panel is a dedicated full-width horizontal band across the
+   top of the screen. The band itself is fully transparent (no background, no
+   blur) — the controls carry their own backgrounds. The expanded left sheet
+   slides UNDER it (full height, sheet.css): the sheet surface shows through
+   beneath the logo / search / date picker, while the sheet's scrollable
+   content is padded down by --top-bar-height so text never overlaps the
+   controls. viewportManager accounts for the band's height when computing
+   the map's visible center. */
+@media (min-width: 769px) {
+    #filter-panel {
+        width: auto;
+        right: 0;
+        height: auto;
+        overflow: visible;
+        padding: 2px 8px;
+        /* iPad app: the WebView is edge-to-edge under the status bar — pad the
+           top bar down by the safe-area inset (0 in desktop browsers). */
+        padding-top: max(2px, var(--safe-area-top, env(safe-area-inset-top, 0px)));
+        margin: 0;
+        /* Fully transparent — controls get their own bg */
+        background-color: transparent;
+        backdrop-filter: none;
+        border: none;
+        border-radius: 0;
+    }
+
+    /* Neutralize tags-collapsed on desktop — top bar is always visible */
+    #filter-panel.tags-collapsed {
+        width: auto;
+        height: auto;
+        padding: 2px 8px;
+        padding-top: max(2px, var(--safe-area-top, env(safe-area-inset-top, 0px)));
+        overflow: visible;
+    }
+
+    #filter-panel.tags-collapsed > * {
+        opacity: 1;
+    }
+
+    /* Filter controls in a single horizontal row, midlines aligned with the
+       chip bar (which is the tallest item, sized for chip shadows). */
+    #filter-container {
+        flex-direction: row;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 0;
+        padding: 0;
+    }
+
+    /* Logo + search + date picker: aligned with the left sheet docked below.
+       The band's content sits 8px in from the viewport edge (panel padding);
+       the group ends 8px short of the sheet's right edge so the date picker
+       keeps a matching right inset. The search input (flex: 1) absorbs the
+       slack. */
+    #filter-container > div:first-child {
+        flex-shrink: 0;
+        gap: 6px;
+        width: calc(var(--sheet-width, 420px) - 16px);
+        box-sizing: border-box;
+    }
+
+    /* Controls: smaller to match chip bar height on desktop */
+    #date-picker,
+    #omni-search-input {
+        padding: 4px 10px 4px 24px;
+        font-size: 0.95em;
+    }
+
+    /* Logo pill matches the desktop inputs' height
+       (4px pad + 1.2 × 0.95em line ≈ 28px); asymmetric horizontal padding
+       half-centers the torch's shaft axis (see base rule). */
+    #logo-container {
+        padding: 3px 8.2px 3px 8.7px;
+    }
+
+    #logo {
+        height: 20px;
+    }
+
+    #date-picker-sizer {
+        font-size: 0.95em;
+        padding-left: 24px;
+        padding-right: 10px;
+    }
+
+    /* Menu items track the desktop top bar's smaller control size */
+    #logo-menu a,
+    #logo-menu button,
+    :is(#format-selector-panel, #neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel) label {
+        padding: 7px 12px;
+        font-size: 0.95em;
+    }
+
+
+
+    /* The results live in the sheet (see sheet.css), which hosts #tags-wrapper /
+       #results-container — left-docked on desktop, bottom-docked on mobile. */
+}
+
 /* === Mobile Responsive Styles === */
 /* On mobile, the panel becomes a full-width collapsible header (85% of desktop sizes) */
 @media (max-width: 768px) {
@@ -401,25 +691,26 @@ span.flatpickr-weekday {
         position: fixed;
         top: 0;
         left: 0;
-        width: calc(100vw - 0px);
-        border: 0px;
-        border-radius: 0px;
+        width: 100vw;
         height: auto;
         overflow: visible;
-        margin: 0px;
-        padding: 2px;
-        /* Add safe area padding for devices with notches/status bars (Android app, iOS) */
-        /* Uses CSS variable --safe-area-top injected by Android app, or env() fallback */
-        padding-top: max(2px, var(--safe-area-top, env(safe-area-inset-top, 0px)));
+        margin: 0;
+        padding: 4px 6px;
+        /* Safe area padding for devices with notches/status bars */
+        padding-top: max(4px, var(--safe-area-top, env(safe-area-inset-top, 0px)));
         display: flex;
         flex-direction: column;
         z-index: var(--z-panel);
+        /* Match desktop: transparent bg — controls get their own bg */
+        background-color: transparent;
+        backdrop-filter: none;
+        border: none;
+        border-radius: 0;
     }
 
     /* Fallback for Android app if CSS variables aren't injected */
     .fomo-android-app #filter-panel {
-        /* Use 36px as reasonable default for Android status bar (typically 24-48dp) */
-        padding-top: max(2px, var(--safe-area-top, 36px));
+        padding-top: max(4px, var(--safe-area-top, 36px));
     }
 
     #logo-menu-wrapper {
@@ -433,38 +724,91 @@ span.flatpickr-weekday {
         margin-top: 0;
     }
 
-    #logo {
-        height: 29px;
-    }
 
-    #filter-container {
-        padding: 0;
-        margin-bottom: 4px;
-        gap: 5px;
-    }
 
-    .panel-header h2 {
-        font-size: 1.5em;
-        margin-bottom: 10px;
-    }
 
-    .filter-group {
-        margin-bottom: 0px;
-    }
+}
 
-    #date-picker,
-    #geotag-search-input,
-    #omni-search-input {
-        padding: 5px 5px 5px 32px;
-    }
+/* Independent event-format control. Native popover escapes the panel's clipping. */
+:is(#format-selector-button, #neighborhood-selector-button, #tag-selector-button, #venue-selector-button) {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 3px;
+    max-width: 180px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--primary-bg) 85%, transparent);
+    color: var(--secondary-text);
+    font: inherit;
+    font-size: 1.08em;
+    line-height: 1.2;
+    letter-spacing: -0.03em;
+    cursor: pointer;
+}
+:is(#format-selector-button, #neighborhood-selector-button, #tag-selector-button, #venue-selector-button) span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(#format-selector-button, #neighborhood-selector-button, #tag-selector-button, #venue-selector-button):hover, :is(#format-selector-button, #neighborhood-selector-button, #tag-selector-button, #venue-selector-button)[aria-expanded="true"] { color: var(--primary-text); }
+:is(#format-selector-button, #neighborhood-selector-button, #tag-selector-button, #venue-selector-button):focus-visible, :is(#format-selector-panel, #neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel) :focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+:is(#format-selector-panel, #neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel) {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    box-sizing: border-box;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    padding: 0;
+    color: var(--secondary-text);
+    font-family: var(--font-display);
+}
+:is(#format-selector-panel, #neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel)::-webkit-scrollbar { display: none; }
+:is(#format-selector-panel, #neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel) label { display: flex; align-items: center; gap: 9px; box-sizing: border-box; padding-top: 5px; padding-bottom: 5px; }
+:is(#format-selector-panel, #neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel) input { width: 17px; height: 17px; margin: 0; flex-shrink: 0; accent-color: var(--accent-color); }
+.format-selector-group-heading { display: flex; align-items: stretch; }
+.format-selector-group-heading label { flex: 1; }
+.format-selector-children { padding-left: 26px; }
+.format-selector-disclosure { display: flex; align-items: center; justify-content: center; width: 40px; flex-shrink: 0; padding: 0; border: 0; background: none; color: var(--secondary-text); font: inherit; font-size: 1.5em; cursor: pointer; }
+.format-selector-disclosure:hover { background: var(--tertiary-bg); color: var(--primary-text); }
+:is(#format-selector-panel, #neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel) .format-selector-disclosure:focus-visible { outline-offset: -2px; }
+.format-selector-disclosure span { display: block; }
+.format-selector-disclosure[aria-expanded="true"] span { transform: rotate(90deg); }
+@media (min-width: 769px) {
+    :is(#format-selector-button, #neighborhood-selector-button, #tag-selector-button, #venue-selector-button) { font-size: .95em; padding: 4px 9px; }
+    #filter-container > div:first-child { width: auto; min-width: calc(var(--sheet-width, 420px) - 16px); }
+    #omni-search-filter { min-width: 120px; }
+}
+@media (max-width: 768px) {
+    #filter-container > div:first-child { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; }
+    #omni-search-filter { grid-column: 2; min-width: 0; }
+    #date-filter-container { grid-column: 3; justify-self: end; }
+    :is(#format-selector-button, #neighborhood-selector-button, #tag-selector-button, #venue-selector-button) { min-width: 0; max-width: 100%; justify-self: end; font-size: 1em; padding-inline: 8px; }
+}
 
-    .calendar-icon,
-    .location-icon,
-    .search-icon {
-        left: 10px;
-    }
+/* Neighborhood navigation uses the existing selector's typography and colors. */
+:is(#neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel) .neighborhood-search {
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    margin: 0 0 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--secondary-bg);
+    color: var(--primary-text);
+    font: inherit;
+}
+.neighborhood-empty-message, .selector-empty-message { margin: 8px; color: var(--secondary-text); font-size: .9em; }
+:is(#neighborhood-selector-panel, #tag-selector-panel, #venue-selector-panel) .format-selector-children { padding-left: 16px; }
 
-    .flatpickr-calendar {
-        font-size: 1em;
-    }
+:is(#tag-selector-panel, #venue-selector-panel) label { min-width: 0; overflow-wrap: anywhere; }
+:is(#tag-selector-panel, #venue-selector-panel) .tag-selector-active { border-bottom: 1px solid var(--border-color); padding-block: 4px; }
+:is(#tag-selector-panel, #venue-selector-panel) .tag-selector-state { margin-left: auto; font-size: .8em; color: var(--secondary-text); }
+@media (max-width: 768px) {
+    #format-selector-button, #neighborhood-selector-button, #tag-selector-button, #venue-selector-button { justify-self: stretch; justify-content: center; }
+}
+
+.selector-controls { display: contents; }
+@media (max-width: 768px) {
+    .selector-controls { display: grid; grid-column: 1 / 4; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 }

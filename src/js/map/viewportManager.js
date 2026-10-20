@@ -22,13 +22,9 @@ const ViewportManager = (() => {
      * Module state
      */
     const state = {
-        // App state reference (injected during init)
-        appState: null,
-
         // Cached calculations
         visibleCenter: null,
-        debugRectBounds: null,
-        locationDistances: {}
+        debugRectBounds: null
     };
 
     // ========================================
@@ -63,34 +59,29 @@ const ViewportManager = (() => {
     // ========================================
 
     /**
-     * Gets the dimensions of the filter panel overlay
-     * Returns different values for desktop (left panel) vs mobile (top panel)
-     * Uses hardcoded height during initial load to avoid measurement issues
+     * Gets the dimensions of the overlays covering the map: the top filter
+     * band. The filter panel covers no horizontal strip of the map.
+     * Uses hardcoded sizes during initial load to avoid measurement issues.
      *
      * @param {boolean} isInitialLoad - Whether this is during initial app load
      * @returns {Object} Object with filterPanelWidth and filterPanelHeight
      */
     function getFilterPanelDimensions(isInitialLoad = false) {
-        let filterPanelWidth = 0;
         let filterPanelHeight = 0;
 
         const filterPanel = document.getElementById('filter-panel');
         if (filterPanel) {
-            if (window.innerWidth <= Constants.UI.MOBILE_BREAKPOINT) {
-                // On mobile, panel covers top of screen
+            if (isInitialLoad) {
                 // Use constant height during initial load to avoid incorrect measurements
-                if (isInitialLoad) {
-                    filterPanelHeight = Constants.UI.FILTER_PANEL_MOBILE_HEIGHT;
-                } else {
-                    filterPanelHeight = filterPanel.offsetHeight;
-                }
+                filterPanelHeight = Utils.isMobileLayout()
+                    ? Constants.UI.FILTER_PANEL_MOBILE_HEIGHT
+                    : Constants.UI.FILTER_PANEL_DESKTOP_HEIGHT;
             } else {
-                // On desktop, panel covers left side of screen
-                filterPanelWidth = filterPanel.offsetWidth;
+                filterPanelHeight = filterPanel.offsetHeight;
             }
         }
 
-        return { filterPanelWidth, filterPanelHeight };
+        return { filterPanelWidth: 0, filterPanelHeight };
     }
 
     // ========================================
@@ -99,8 +90,7 @@ const ViewportManager = (() => {
 
     /**
      * Calculates the visible center of the map accounting for filter panel overlay
-     * The visible center is offset from the map center based on panel dimensions
-     * Returns a point that is 80% of the way between map center and edge of visible area
+     * The visible center is the midpoint of the viewport area not covered by the panel
      *
      * @param {maplibregl.Map} map - MapLibre map instance
      * @param {boolean} [isInitialLoad=false] - Whether this is during initial load
@@ -119,21 +109,10 @@ const ViewportManager = (() => {
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
 
-        // Calculate the center of the debug rectangle (90% inset bounds)
-        // This matches the debugRectBounds calculation in calculateViewportBounds
-        const inset = 0.05; // 5% inset on each side = 90% of bounds
-        const effectiveWidth = viewportWidth - filterPanelWidth;
-        const effectiveHeight = viewportHeight - filterPanelHeight;
-
-        // The debug rectangle spans from (filterPanelWidth + inset, filterPanelHeight + inset)
-        // to (viewportWidth - inset, viewportHeight - inset)
-        // Its center is the midpoint of these bounds
-        const visibleCenterPoint = {
-            x: offsetX + filterPanelWidth + effectiveWidth * inset + (effectiveWidth * (1 - 2 * inset)) / 2,
-            y: offsetY + filterPanelHeight + effectiveHeight * inset + (effectiveHeight * (1 - 2 * inset)) / 2
-        };
-
-        const visibleCenter = map.unproject([visibleCenterPoint.x, visibleCenterPoint.y]);
+        const visibleCenter = map.unproject([
+            offsetX + filterPanelWidth + (viewportWidth - filterPanelWidth) / 2,
+            offsetY + filterPanelHeight + (viewportHeight - filterPanelHeight) / 2
+        ]);
         state.visibleCenter = { lat: visibleCenter.lat, lng: visibleCenter.lng };
 
         return state.visibleCenter;
@@ -196,14 +175,20 @@ const ViewportManager = (() => {
         const { filterPanelWidth, filterPanelHeight } = getFilterPanelDimensions(isInitialLoad);
 
         // Calculate the corners of the actual visible viewport in map container pixel coordinates
-        // Add buffer offset because the map container is shifted by -50vw, -50vh
-        const topLeftPx = { x: filterPanelWidth + offsetX, y: filterPanelHeight + offsetY };
+        // Add buffer offset because the map container is shifted by -50vw, -50vh.
+        const topLeftPx = { x: offsetX + filterPanelWidth, y: filterPanelHeight + offsetY };
         const topRightPx = { x: viewportWidth + offsetX, y: filterPanelHeight + offsetY };
         const bottomRightPx = { x: viewportWidth + offsetX, y: viewportHeight + offsetY };
-        const bottomLeftPx = { x: filterPanelWidth + offsetX, y: viewportHeight + offsetY };
+        const bottomLeftPx = { x: offsetX + filterPanelWidth, y: viewportHeight + offsetY };
 
-        // Calculate visible center
-        const visibleCenter = calculateVisibleCenter(map, isInitialLoad);
+        // Calculate visible center as the midpoint of the visible viewport corners
+        // (same result as calculateVisibleCenter, without re-reading layout)
+        const centerLngLat = map.unproject([
+            (topLeftPx.x + bottomRightPx.x) / 2,
+            (topLeftPx.y + bottomRightPx.y) / 2
+        ]);
+        const visibleCenter = { lat: centerLngLat.lat, lng: centerLngLat.lng };
+        state.visibleCenter = visibleCenter;
 
         // Get lat/lng for all four corners (handles rotation and pitch)
         const topLeft = map.unproject([topLeftPx.x, topLeftPx.y]);
@@ -235,9 +220,7 @@ const ViewportManager = (() => {
                 const lat = Array.isArray(point) ? point[0] : point.lat;
                 const lng = Array.isArray(point) ? point[1] : point.lng;
                 return isPointInQuadrilateral({ lat, lng }, quadrilateral);
-            },
-            // Expose the quadrilateral for debugging
-            getQuadrilateral: () => quadrilateral
+            }
         };
 
         // Calculate 90% inset bounds for popup positioning (in screen pixels - still a rectangle)
@@ -271,15 +254,6 @@ const ViewportManager = (() => {
         };
     }
 
-    /**
-     * Gets the currently cached debug rectangle bounds
-     * Used for popup positioning
-     * @returns {Object|null} Debug rect bounds or null
-     */
-    function getDebugRectBounds() {
-        return state.debugRectBounds;
-    }
-
     // ========================================
     // DISTANCE CALCULATIONS
     // ========================================
@@ -298,29 +272,12 @@ const ViewportManager = (() => {
         const distances = {};
 
         for (const locationKey in locationsByLatLng) {
-            const [lat, lng] = locationKey.split(',').map(Number);
-            distances[locationKey] = Utils.calculateHaversineDistance(visibleCenter, { lat, lng });
+            const ll = Utils.parseLocationKey(locationKey);
+            if (!ll) continue;
+            distances[locationKey] = Utils.calculateHaversineDistance(visibleCenter, ll);
         }
 
-        state.locationDistances = distances;
         return distances;
-    }
-
-    /**
-     * Gets the cached location distances
-     * @returns {Object} Map of locationKey to distance
-     */
-    function getLocationDistances() {
-        return state.locationDistances;
-    }
-
-    /**
-     * Gets the distance for a specific location
-     * @param {string} locationKey - Location key in "lat,lng" format
-     * @returns {number|null} Distance in meters or null if not found
-     */
-    function getLocationDistance(locationKey) {
-        return state.locationDistances[locationKey] || null;
     }
 
     // ========================================
@@ -362,15 +319,6 @@ const ViewportManager = (() => {
     // ========================================
     // PUBLIC API
     // ========================================
-
-    /**
-     * Initializes the ViewportManager module
-     * @param {Object} config - Configuration object
-     * @param {Object} config.appState - Reference to app state
-     */
-    function init(config) {
-        state.appState = config.appState;
-    }
 
     /**
      * Updates all viewport-related calculations
@@ -421,7 +369,7 @@ const ViewportManager = (() => {
         const { offsetX, offsetY } = getTileBufferOffset();
 
         // Check if we're in mobile layout (filter panel on top, not left)
-        const isMobileLayout = window.innerWidth <= Constants.UI.MOBILE_BREAKPOINT;
+        const isMobileLayout = Utils.isMobileLayout();
 
         // Add some padding for visual comfort
         const padding = 10;
@@ -471,6 +419,31 @@ const ViewportManager = (() => {
                 panX = (debugRectBounds.left + padding) - popupLeft;
             } else if (popupRight > debugRectBounds.right - padding) {
                 panX = (debugRectBounds.right - padding) - popupRight;
+            }
+
+            // Check if popup overlaps with the search results panel (visible when searching)
+            const tagsWrapper = document.getElementById('tags-wrapper');
+            if (tagsWrapper) {
+                const panelRect = tagsWrapper.getBoundingClientRect();
+                if (panelRect.width > 0 && panelRect.height > 0) {
+                    const panelRight = panelRect.right + offsetX;
+                    const panelBottom = panelRect.bottom + offsetY;
+                    const panelTop = panelRect.top + offsetY;
+
+                    // Check if popup (after existing adjustments) still overlaps the panel
+                    const adjLeft = popupLeft + panX;
+                    const adjTop = popupTop + panY;
+                    const adjBottom = popupBottom + panY;
+
+                    if (adjLeft < panelRight + padding &&
+                        adjBottom > panelTop &&
+                        adjTop < panelBottom) {
+                        const neededPanX = (panelRight + padding) - popupLeft;
+                        if (neededPanX > panX) {
+                            panX = neededPanX;
+                        }
+                    }
+                }
             }
         }
 
@@ -561,24 +534,12 @@ const ViewportManager = (() => {
     // ========================================
 
     return {
-        // Initialization
-        init,
-
         // Filter panel dimensions
         getFilterPanelDimensions,
 
         // Visible center
         calculateVisibleCenter,
         getVisibleCenter,
-
-        // Viewport bounds
-        calculateViewportBounds,
-        getDebugRectBounds,
-
-        // Distance calculations
-        calculateLocationDistances,
-        getLocationDistances,
-        getLocationDistance,
 
         // Map adjustments
         adjustMapToVisibleCenter,

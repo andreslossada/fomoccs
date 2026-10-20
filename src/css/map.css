@@ -64,7 +64,7 @@
     background-color: color-mix(in srgb, var(--primary-bg) 75%, transparent) !important;
     backdrop-filter: blur(5px);
     border: 1px solid var(--border-color) !important;
-    border-radius: 14px !important;
+    border-radius: var(--radius-control) !important;
     box-shadow: none;
     overflow: hidden;
 }
@@ -89,7 +89,7 @@
     filter: var(--icon-filter, none);
 }
 
-/* Dark theme icon filter to invert icons */
+/* Dark mode inverts the control icons. */
 :root[data-theme="dark"] .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
     filter: invert(1);
 }
@@ -102,19 +102,83 @@
 /* === Tile Buffer Compensation === */
 /* The map renders at 140% size with 20% offset for tile buffering.
    Controls need to be offset back into the visible viewport area. */
-.maplibregl-ctrl-top-right {
+.maplibregl-ctrl-bottom-right {
     /* Offset from the enlarged container edge into the visible viewport */
     /* 20vw brings it to viewport edge, then 12px for standard MapLibre margin */
     right: calc(20vw + 12px) !important;
-    top: calc(20vh + 12px) !important;
-    top: calc(20dvh + 12px) !important;
-    top: calc(var(--app-height, 100dvh) * 0.2 + 12px) !important;
+    bottom: calc(20vh + 12px) !important;
+    bottom: calc(20dvh + 12px) !important;
+    bottom: calc(var(--app-height, 100dvh) * 0.2 + 12px) !important;
 }
 
 /* === Mobile Responsive Styles === */
 /* Hide zoom controls on mobile (pinch gestures used instead) */
 @media (max-width: 768px) {
-    .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
+    .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
         display: none;
+    }
+}
+
+/* === Phase 2 Loading Indicator === */
+/* Subtle pill shown while the full dataset is merging after Phase 1.
+   The map and Phase-1 markers are interactive during this time. */
+#phase2-loading-indicator {
+    position: absolute;
+    bottom: calc(20dvh + 16px);
+    bottom: calc(var(--app-height, 100dvh) * 0.2 + 16px);
+    left: 50%;
+    transform: translateX(-50%) translateY(8px);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: color-mix(in srgb, var(--primary-bg) 87%, transparent);
+    color: var(--primary-text);
+    border-radius: var(--radius-round);
+    font-size: 13px;
+    line-height: 1;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease, transform 200ms ease;
+    z-index: 5;
+}
+
+#phase2-loading-indicator.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+#phase2-loading-indicator.done {
+    /* Stays hidden once Phase 2 finishes; .visible is removed first */
+    display: none;
+}
+
+.phase2-spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: phase2-spin 800ms linear infinite;
+}
+
+.phase2-progress {
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+    min-width: 2.5em;
+    text-align: right;
+}
+
+@keyframes phase2-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* On mobile, sit above the bottom sheet's collapsed handle area. */
+@media (max-width: 768px) {
+    #phase2-loading-indicator {
+        bottom: 70px;
     }
 }

@@ -6,11 +6,10 @@
  *
  * Features:
  * - Assigns colors from theme-appropriate palette
- * - Tracks selected tags with their colors and weights
+ * - Tracks selected tags with their colors
  * - Handles color reuse when palette is exhausted
  * - Reassigns colors when theme changes
  * - Provides display order for selected tags
- * - Manages both explicit selections (weight=1.0) and implicit/related tags (weight<1.0)
  *
  * @module TagColorManager
  */
@@ -27,17 +26,13 @@ const TagColorManager = (() => {
         darkPalette: [],
         lightPalette: [],
 
-        // Selected tags with their assigned colors and weights
-        // Array of [tag, color, weight] tuples, maintains selection order
-        // weight=1.0 for explicitly selected tags, weight<1.0 for related/implicit tags
-        selectedTagsWithColors: [],
+        // Emoji-based color lookup
+        tagEmojiMap: {},   // tag name -> emoji
+        bgcolors: {},      // "<font>|<emoji>" -> hex color (runtime cache of live-extracted colors)
 
-        // Set of implicit tags that have been manually excluded by the user
-        excludedImplicitTags: new Set(),
-
-        // Callbacks
-        getRelatedTags: null,  // Callback to get related tags for a given tag
-        onImplicitTagsChanged: null  // Callback when implicit tags are added/removed
+        // Selected tags with their assigned colors
+        // Array of [tag, color] tuples, maintains selection order
+        selectedTagsWithColors: []
     };
 
     // ========================================
@@ -49,28 +44,23 @@ const TagColorManager = (() => {
      * @returns {string} 'dark' or 'light'
      */
     function getCurrentTheme() {
-        return document.documentElement.getAttribute('data-theme') || 'dark';
+        return Utils.getCurrentTheme();
     }
 
     /**
-     * Gets the color palette for the current theme
+     * Gets the color palette for the current Dark or Light theme.
      * @returns {Array<string>} Array of color hex codes
      */
     function getCurrentPalette() {
-        const theme = getCurrentTheme();
-        return theme === 'dark' ? state.darkPalette : state.lightPalette;
+        return getCurrentTheme() === 'light' ? state.lightPalette : state.darkPalette;
     }
 
     /**
-     * Gets all currently used colors (by explicitly selected tags only)
+     * Gets all currently used colors
      * @returns {Set<string>} Set of color hex codes
      */
     function getUsedColors() {
-        return new Set(
-            state.selectedTagsWithColors
-                .filter(([, , weight]) => weight === 1.0)
-                .map(([, color]) => color)
-        );
+        return new Set(state.selectedTagsWithColors.map(([, color]) => color));
     }
 
     /**
@@ -84,12 +74,101 @@ const TagColorManager = (() => {
         return palette.find(color => !usedColors.has(color)) || null;
     }
 
+    // OKLCH targets for the final emoji-derived color. Lightness and chroma are
+    // pinned (only the hue, found below, varies per emoji) so every marker/chip
+    // color reads as equally vivid regardless of hue — the same perceptual
+    // normalization MapManager applies to event labels. Gamut-clamped per hue by
+    // ColorUtils.oklchToHex, so unreachable chromas reduce gracefully.
+    const MARKER_OKLCH_L = 0.62;
+    const MARKER_OKLCH_C = 0.15;
+
+    // Pixel clustering thresholds, in OKLab terms. Note OKLab chroma is numerically
+    // ~10× smaller than HSL saturation — a glyph that reads as clearly colored (e.g.
+    // 🎵) can have a max per-pixel chroma of only ~0.035, so these floors are far
+    // lower than the old HSL s≈0.15 cutoff would suggest.
+    const MIN_PIXEL_CHROMA = 0.02;   // reject achromatic (gray/white/black) pixels
+    const MIN_PIXEL_L = 0.12;        // reject near-black outline pixels
+    const MIN_RESULT_CHROMA = 0.015; // averaged result this gray ⇒ achromatic glyph (⚽) → fallback
+
+    function extractColorFromPixels(imageData) {
+        const fallback = '#8899aa';
+        const targetL = MARKER_OKLCH_L;
+        const targetC = MARKER_OKLCH_C;
+        const data = imageData.data;
+        const buckets = new Array(36).fill(0);
+        const bucketColors = Array.from({length: 36}, () => []);
+
+        // Cluster pixels by perceptual (OKLCH) hue, weighting each by its OKLab
+        // chroma² so the most colorful pixels dominate the pick. We reject only
+        // achromatic pixels (chroma alone rejects white — we must NOT reject on
+        // high L, since saturated yellow has L≈0.96) and near-black outline pixels.
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+            if (a < 30) continue;
+            const { L, C, h } = ColorUtils.rgbToOklch(r, g, b);
+            if (C < MIN_PIXEL_CHROMA || L < MIN_PIXEL_L) continue;
+            const bucket = Math.floor(h / 10) % 36;
+            buckets[bucket] += C * C;
+            bucketColors[bucket].push({r, g, b, c: C});
+        }
+
+        let best = 0, bestScore = 0;
+        for (let i = 0; i < 36; i++) {
+            const sc = buckets[(i+35)%36]*0.5 + buckets[i] + buckets[(i+1)%36]*0.5;
+            if (sc > bestScore) { bestScore = sc; best = i; }
+        }
+
+        const nearby = [
+            ...bucketColors[(best+35)%36],
+            ...bucketColors[best],
+            ...bucketColors[(best+1)%36]
+        ];
+        if (!nearby.length) return fallback;
+
+        let sR=0, sG=0, sB=0, sW=0;
+        nearby.forEach(c => {
+            const w = c.c * c.c;
+            sR += c.r*w; sG += c.g*w; sB += c.b*w; sW += w;
+        });
+        const aR = sR/sW, aG = sG/sW, aB = sB/sW;
+
+        // Normalize the dominant color in OKLCH: keep its perceptual hue but pin
+        // lightness and chroma to the shared targets; cached per
+        // font+theme in getColorForEmoji. If the dominant color is itself
+        // near-gray, the glyph is achromatic (e.g. ⚽) → fallback.
+        const avg = ColorUtils.rgbToOklch(aR, aG, aB);
+        if (avg.C < MIN_RESULT_CHROMA) return fallback;
+        return ColorUtils.oklchToHex(targetL, targetC, avg.h);
+    }
+
+    // Compatibility entry point for callers holding source Unicode. Colors
+    // come from the shared artwork cache; mounted icons supply async updates.
+    function getColorForEmoji(emoji) {
+        return IconManager.getColor({ emoji });
+    }
+
     /**
-     * Gets the count of explicitly selected tags (weight=1.0)
-     * @returns {number} Count of explicitly selected tags
+     * Resolves a color for a tag from its artwork.
+     * @param {string} tag - Tag name
+     * @returns {string|null} Color hex code, or null if the tag has no emoji
      */
-    function getExplicitTagCount() {
-        return state.selectedTagsWithColors.filter(([, , weight]) => weight === 1.0).length;
+    const tagIconColors = new Map();
+    function tagIconColorKey(tag) {
+        return [IconManager.tagCacheKey(tag), getCurrentTheme()].join('|');
+    }
+    function acceptTagIconColor(tag, color) {
+        if (!color || !IconManager.tagCacheKey(tag)) return null;
+        tagIconColors.set(tagIconColorKey(tag), color);
+        if (tagIconColors.size > 256) tagIconColors.delete(tagIconColors.keys().next().value);
+        const entry = state.selectedTagsWithColors.find(([name]) => name === tag);
+        if (entry) entry[1] = color;
+        return color;
+    }
+    function getEmojiBgColor(tag) {
+        if (typeof IconManager !== 'undefined' && IconManager.tagCacheKey(tag)) {
+            return tagIconColors.get(tagIconColorKey(tag)) || '#8899aa';
+        }
+        return getColorForEmoji(state.tagEmojiMap[tag]);
     }
 
     /**
@@ -106,8 +185,8 @@ const TagColorManager = (() => {
             return unusedColor;
         }
 
-        // All colors used, wrap around based on explicit selection count
-        const colorIndex = getExplicitTagCount() % palette.length;
+        // All colors used, wrap around
+        const colorIndex = state.selectedTagsWithColors.length % palette.length;
         return palette[colorIndex];
     }
 
@@ -126,74 +205,27 @@ const TagColorManager = (() => {
     }
 
     /**
-     * Gets the weight for a tag
-     * @param {string} tag - Tag name
-     * @returns {number} Weight (1.0 for explicit, <1.0 for implicit, 0 if not selected)
-     */
-    function getTagWeight(tag) {
-        const entry = state.selectedTagsWithColors.find(([t]) => t === tag);
-        return entry ? entry[2] : 0;
-    }
-
-    /**
-     * Checks if a tag is implicitly selected (weight < 1.0)
-     * @param {string} tag - Tag name
-     * @returns {boolean} True if tag is implicitly selected
-     */
-    function isImplicitlySelected(tag) {
-        const weight = getTagWeight(tag);
-        return weight > 0 && weight < 1.0;
-    }
-
-    /**
-     * Assigns a color to a tag (explicit selection with weight=1.0)
-     * Also adds related tags with their respective weights
+     * Assigns a color to a tag
      * If tag already has a color, does nothing
      * @param {string} tag - Tag name
      * @returns {string} The assigned color
      */
     function assignColorToTag(tag) {
-        // Check if already assigned as explicit
+        // Check if already assigned
         const existingEntry = state.selectedTagsWithColors.find(([t]) => t === tag);
-        if (existingEntry && existingEntry[2] === 1.0) {
+        if (existingEntry) {
             return existingEntry[1];
         }
 
-        // Get next available color
-        const color = getNextColor();
-
-        // If tag was implicitly selected, upgrade to explicit
-        if (existingEntry) {
-            existingEntry[1] = color;
-            existingEntry[2] = 1.0;
-        } else {
-            // Add to the list as explicitly selected
-            state.selectedTagsWithColors.push([tag, color, 1.0]);
-        }
-
-        // Add related tags if callback is available
-        if (state.getRelatedTags) {
-            const relatedTags = state.getRelatedTags(tag);
-            for (const [relatedTag, weight] of relatedTags) {
-                // Check if related tag already exists
-                const existingRelated = state.selectedTagsWithColors.find(([t]) => t === relatedTag);
-                if (!existingRelated) {
-                    // Add related tag with the parent's color and its weight
-                    state.selectedTagsWithColors.push([relatedTag, color, weight]);
-                } else if (existingRelated[2] < 1.0 && weight > existingRelated[2]) {
-                    // Update weight if higher (keep existing color)
-                    existingRelated[2] = weight;
-                }
-                // If already explicit (weight=1.0), don't change anything
-            }
-        }
+        // Prefer emoji bgcolor, fall back to palette
+        const color = getEmojiBgColor(tag) || getNextColor();
+        state.selectedTagsWithColors.push([tag, color]);
 
         return color;
     }
 
     /**
      * Removes color assignment from a tag
-     * Also removes related tags that are no longer needed
      * @param {string} tag - Tag name
      * @returns {boolean} True if tag was found and removed, false otherwise
      */
@@ -202,106 +234,10 @@ const TagColorManager = (() => {
 
         if (index > -1) {
             state.selectedTagsWithColors.splice(index, 1);
-
-            // Remove orphaned implicit tags (those not related to any remaining explicit tags)
-            rebuildImplicitTags();
-
             return true;
         }
 
         return false;
-    }
-
-    /**
-     * Rebuilds implicit tags based on currently explicit tags
-     * Removes orphaned implicit tags and updates weights
-     * Respects manually excluded implicit tags
-     */
-    function rebuildImplicitTags() {
-        if (!state.getRelatedTags) return;
-
-        // Track which implicit tags existed before
-        const oldImplicitTags = new Set(
-            state.selectedTagsWithColors
-                .filter(([, , weight]) => weight < 1.0)
-                .map(([tag]) => tag)
-        );
-
-        // Get all explicitly selected tags
-        const explicitTags = state.selectedTagsWithColors
-            .filter(([, , weight]) => weight === 1.0)
-            .map(([tag, color]) => ({ tag, color }));
-
-        // Build a map of which implicit tags should exist and with what weight/color
-        const implicitTagsMap = new Map();
-
-        for (const { tag, color } of explicitTags) {
-            const relatedTags = state.getRelatedTags(tag);
-            for (const [relatedTag, weight] of relatedTags) {
-                // Skip if this related tag is explicitly selected
-                if (explicitTags.some(e => e.tag === relatedTag)) continue;
-
-                // Skip if this related tag has been manually excluded
-                if (state.excludedImplicitTags.has(relatedTag)) continue;
-
-                const existing = implicitTagsMap.get(relatedTag);
-                if (!existing || weight > existing.weight) {
-                    implicitTagsMap.set(relatedTag, { color, weight });
-                }
-            }
-        }
-
-        // Track new implicit tags
-        const newImplicitTags = new Set(implicitTagsMap.keys());
-
-        // Find removed and added implicit tags
-        const removedImplicitTags = [...oldImplicitTags].filter(tag => !newImplicitTags.has(tag));
-        const addedImplicitTags = [...newImplicitTags].filter(tag => !oldImplicitTags.has(tag));
-
-        // Remove all implicit tags from current list
-        state.selectedTagsWithColors = state.selectedTagsWithColors.filter(([, , weight]) => weight === 1.0);
-
-        // Add back the implicit tags with correct weights
-        for (const [tag, { color, weight }] of implicitTagsMap) {
-            state.selectedTagsWithColors.push([tag, color, weight]);
-        }
-
-        // Notify about changes if there were any
-        if ((removedImplicitTags.length > 0 || addedImplicitTags.length > 0) && state.onImplicitTagsChanged) {
-            state.onImplicitTagsChanged(addedImplicitTags, removedImplicitTags);
-        }
-    }
-
-    /**
-     * Excludes an implicit tag from the related tags list
-     * The tag will not appear as an implicit selection until explicit tags change
-     * @param {string} tag - Tag to exclude
-     * @returns {boolean} True if the tag was excluded
-     */
-    function excludeImplicitTag(tag) {
-        // Only exclude if it's currently an implicit tag
-        const entry = state.selectedTagsWithColors.find(([t]) => t === tag);
-        if (!entry || entry[2] === 1.0) {
-            return false; // Not an implicit tag
-        }
-
-        state.excludedImplicitTags.add(tag);
-
-        // Remove from current selections
-        const index = state.selectedTagsWithColors.findIndex(([t]) => t === tag);
-        if (index !== -1) {
-            state.selectedTagsWithColors.splice(index, 1);
-        }
-
-        return true;
-    }
-
-    /**
-     * Clears the excluded implicit tags list
-     * Called when explicit tag selection changes significantly
-     */
-    function clearExcludedImplicitTags() {
-        state.excludedImplicitTags.clear();
     }
 
     /**
@@ -311,44 +247,18 @@ const TagColorManager = (() => {
      */
     function reassignTagColors() {
         const palette = getCurrentPalette();
-
-        // First, reassign colors for explicit tags
-        let colorIndex = 0;
-        const explicitColorMap = new Map();
+        let paletteIndex = 0;
 
         state.selectedTagsWithColors.forEach((entry) => {
-            const [tag, , weight] = entry;
-            if (weight === 1.0) {
-                const newColor = palette[colorIndex % palette.length];
-                entry[1] = newColor;
-                explicitColorMap.set(tag, newColor);
-                colorIndex++;
+            // Keep emoji bgcolors (theme-independent); reassign palette colors
+            const emojiBg = getEmojiBgColor(entry[0]);
+            if (emojiBg) {
+                entry[1] = emojiBg;
+            } else {
+                entry[1] = palette[paletteIndex % palette.length];
+                paletteIndex++;
             }
         });
-
-        // Then update implicit tags to use their parent's new color
-        if (state.getRelatedTags) {
-            state.selectedTagsWithColors.forEach((entry) => {
-                const [tag, , weight] = entry;
-                if (weight < 1.0) {
-                    // Find which explicit tag this is related to
-                    for (const [explicitTag, color] of explicitColorMap) {
-                        const relatedTags = state.getRelatedTags(explicitTag);
-                        if (relatedTags.some(([rt]) => rt === tag)) {
-                            entry[1] = color;
-                            break;
-                        }
-                    }
-                }
-            });
-        }
-    }
-
-    /**
-     * Clears all color assignments
-     */
-    function clearAll() {
-        state.selectedTagsWithColors = [];
     }
 
     // ========================================
@@ -356,77 +266,11 @@ const TagColorManager = (() => {
     // ========================================
 
     /**
-     * Gets all explicitly selected tags in selection order (weight=1.0)
-     * @returns {Array<string>} Array of tag names
-     */
-    function getSelectedTags() {
-        return state.selectedTagsWithColors
-            .filter(([, , weight]) => weight === 1.0)
-            .map(([tag]) => tag);
-    }
-
-    /**
-     * Gets all tags (explicit and implicit) with their colors and weights
-     * @returns {Array<[string, string, number]>} Array of [tag, color, weight] tuples
+     * Gets all tags with their colors
+     * @returns {Array<[string, string]>} Array of [tag, color] tuples
      */
     function getSelectedTagsWithColors() {
         return [...state.selectedTagsWithColors];
-    }
-
-    /**
-     * Gets all tag names (explicit and implicit)
-     * @returns {Array<string>} Array of all tag names
-     */
-    function getAllSelectedTagNames() {
-        return state.selectedTagsWithColors.map(([tag]) => tag);
-    }
-
-    /**
-     * Gets the number of explicitly selected tags
-     * @returns {number} Count of explicitly selected tags
-     */
-    function getSelectedTagCount() {
-        return state.selectedTagsWithColors.filter(([, , weight]) => weight === 1.0).length;
-    }
-
-    /**
-     * Checks if a tag is selected (explicit or implicit)
-     * @param {string} tag - Tag name
-     * @returns {boolean} True if tag is selected
-     */
-    function isTagSelected(tag) {
-        return state.selectedTagsWithColors.some(([t]) => t === tag);
-    }
-
-    /**
-     * Checks if a tag is explicitly selected (weight=1.0)
-     * @param {string} tag - Tag name
-     * @returns {boolean} True if tag is explicitly selected
-     */
-    function isExplicitlySelected(tag) {
-        const entry = state.selectedTagsWithColors.find(([t]) => t === tag);
-        return entry ? entry[2] === 1.0 : false;
-    }
-
-    /**
-     * Gets color statistics for debugging/monitoring
-     * @returns {Object} Object with color usage stats
-     */
-    function getColorStats() {
-        const palette = getCurrentPalette();
-        const usedColors = getUsedColors();
-        const explicitCount = getExplicitTagCount();
-        const implicitCount = state.selectedTagsWithColors.length - explicitCount;
-
-        return {
-            theme: getCurrentTheme(),
-            paletteSize: palette.length,
-            explicitTagCount: explicitCount,
-            implicitTagCount: implicitCount,
-            totalTagCount: state.selectedTagsWithColors.length,
-            uniqueColorsUsed: usedColors.size,
-            allColorsUsed: usedColors.size >= palette.length
-        };
     }
 
     // ========================================
@@ -438,32 +282,16 @@ const TagColorManager = (() => {
      * @param {Object} config - Configuration object
      * @param {Array<string>} config.darkPalette - Color palette for dark theme
      * @param {Array<string>} config.lightPalette - Color palette for light theme
-     * @param {Function} [config.getRelatedTags] - Callback to get related tags for a tag
-     * @param {Function} [config.onImplicitTagsChanged] - Callback when implicit tags change (addedTags, removedTags)
      */
     function init(config) {
         state.darkPalette = config.darkPalette || [];
         state.lightPalette = config.lightPalette || [];
+        state.tagEmojiMap = config.tagEmojiMap || {};
+        // Colors are derived live from each emoji's rendered pixels (see
+        // getColorForEmoji), reflecting the viewer's active emoji font. bgcolors is
+        // purely a runtime cache keyed by "<font>|<emoji>"; it starts empty.
+        state.bgcolors = {};
         state.selectedTagsWithColors = [];
-        state.getRelatedTags = config.getRelatedTags || null;
-        state.onImplicitTagsChanged = config.onImplicitTagsChanged || null;
-    }
-
-    /**
-     * Sets the callback for getting related tags
-     * Can be called after init if RelatedTagsManager is initialized later
-     * @param {Function} callback - Function that takes a tag and returns [[relatedTag, weight], ...]
-     */
-    function setRelatedTagsCallback(callback) {
-        state.getRelatedTags = callback;
-    }
-
-    /**
-     * Resets the manager to initial state
-     */
-    function reset() {
-        state.selectedTagsWithColors = [];
-        state.excludedImplicitTags.clear();
     }
 
     // ========================================
@@ -473,33 +301,17 @@ const TagColorManager = (() => {
     return {
         // Initialization
         init,
-        reset,
-        setRelatedTagsCallback,
 
         // Color management
+        getColorForEmoji,
+        extractColorFromPixels,
         getTagColor,
-        getTagWeight,
+        acceptTagIconColor,
         assignColorToTag,
         unassignColorFromTag,
         reassignTagColors,
-        clearAll,
-
-        // Implicit tag management
-        excludeImplicitTag,
-        clearExcludedImplicitTags,
 
         // Query functions
-        getSelectedTags,
-        getSelectedTagsWithColors,
-        getAllSelectedTagNames,
-        getSelectedTagCount,
-        isTagSelected,
-        isExplicitlySelected,
-        isImplicitlySelected,
-        getColorStats,
-
-        // Utility (exposed for testing/debugging)
-        getCurrentTheme,
-        getCurrentPalette
+        getSelectedTagsWithColors
     };
 })();

@@ -9,7 +9,6 @@
  * - Settings modal for user preferences (theme, emoji font)
  * - Keyboard navigation (Escape key support)
  * - Click-outside-to-close behavior
- * - Accessibility features (focus management)
  *
  * @module ModalManager
  */
@@ -23,117 +22,81 @@ const ModalManager = (() => {
      */
     const state = {
         // Callbacks
-        onEmojiFontChange: null,
         onThemeChange: null,
-        onLocationToggle: null,
 
         // DOM references
         settingsModal: null,
-        welcomeModal: null,
-        locationToggle: null,
-        locationStatus: null
+        welcomeModal: null
     };
+
+    // ========================================
+    // SHARED DISMISS WIRING
+    // ========================================
+
+    /**
+     * Wires standard dismiss behavior onto a modal: click-to-close and
+     * Escape-to-close while the modal is shown.
+     * @param {HTMLElement} modal - The modal overlay element
+     * @param {Function} close - Closes the modal
+     * @param {Object} [options]
+     * @param {boolean} [options.closeOnAnyClick=false] - Close on any click on
+     *   the modal (including its content), not just the backdrop
+     */
+    function wireDismiss(modal, close, { closeOnAnyClick = false } = {}) {
+        modal.addEventListener('click', (e) => {
+            if (closeOnAnyClick || e.target === modal) {
+                close();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('show')) {
+                close();
+            }
+        });
+    }
 
     // ========================================
     // SETTINGS MODAL
     // ========================================
 
+    /** Reflects the active theme onto the theme radios (modal open, changes). */
+    function _syncThemeRadios() {
+        const current = Utils.getCurrentTheme();
+        document.querySelectorAll('input[name="theme"]').forEach(radio => {
+            radio.checked = radio.value === current;
+        });
+    }
+
     /**
      * Initializes the settings modal
      * @param {Object} callbacks - Callback functions
-     * @param {Function} callbacks.onEmojiFontChange - Called when emoji font changes
      * @param {Function} callbacks.onThemeChange - Called when theme changes
-     * @param {Function} callbacks.onLocationToggle - Called when location toggle changes
      */
     function initSettingsModal(callbacks = {}) {
-        state.onEmojiFontChange = callbacks.onEmojiFontChange;
         state.onThemeChange = callbacks.onThemeChange;
-        state.onLocationToggle = callbacks.onLocationToggle;
 
         const modal = document.getElementById('settings-modal');
         const closeBtn = document.getElementById('settings-close-btn');
-        const emojiFontRadios = document.querySelectorAll('input[name="emoji-font"]');
-        const themeRadios = document.querySelectorAll('input[name="theme"]');
-        const locationToggle = document.getElementById('use-location-toggle');
-        const locationStatus = document.getElementById('location-status');
+        const themeOptions = document.getElementById('theme-options');
 
-        if (!modal || !closeBtn || emojiFontRadios.length === 0 || themeRadios.length === 0) return;
+        _syncThemeRadios();
 
+        if (!modal || !closeBtn || !themeOptions) return;
         state.settingsModal = modal;
-        state.locationToggle = locationToggle;
-        state.locationStatus = locationStatus;
-
-        // Load current settings with safe storage
-        const savedEmojiFont = Utils.SafeStorage.getItem('emojiFont') || 'system';
-        const savedTheme = Utils.SafeStorage.getItem('theme') || 'dark';
-        const savedUseLocation = Utils.SafeStorage.getItem('useLocation') === 'true';
-
-        // Set the correct radio buttons based on saved settings
-        emojiFontRadios.forEach(radio => {
-            radio.checked = radio.value === savedEmojiFont;
-            // Disable Noto option on unsupported browsers (Safari)
-            if (radio.value === 'noto' && !EmojiManager.isNotoSupported()) {
-                radio.disabled = true;
-                const label = radio.closest('label');
-                if (label) label.style.opacity = '0.4';
-            }
-        });
-        themeRadios.forEach(radio => {
-            radio.checked = radio.value === savedTheme;
-        });
-        if (locationToggle) {
-            locationToggle.checked = savedUseLocation;
-        }
 
         // Close modal when clicking close button
         closeBtn.addEventListener('click', () => {
             closeSettingsModal();
         });
 
-        // Close modal when clicking outside
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                closeSettingsModal();
-            }
-        });
+        // Close modal when clicking outside or on Escape
+        wireDismiss(modal, closeSettingsModal);
 
-        // Handle emoji font change
-        emojiFontRadios.forEach(radio => {
-            radio.addEventListener('change', (e) => {
-                const emojiFont = e.target.value;
-                Utils.SafeStorage.setItem('emojiFont', emojiFont);
-                if (state.onEmojiFontChange) {
-                    state.onEmojiFontChange(emojiFont);
-                }
-            });
-        });
-
-        // Handle theme change
-        themeRadios.forEach(radio => {
-            radio.addEventListener('change', (e) => {
-                const theme = e.target.value;
-                Utils.SafeStorage.setItem('theme', theme);
-                if (state.onThemeChange) {
-                    state.onThemeChange(theme);
-                }
-            });
-        });
-
-        // Handle location toggle change
-        if (locationToggle) {
-            locationToggle.addEventListener('change', (e) => {
-                const useLocation = e.target.checked;
-                Utils.SafeStorage.setItem('useLocation', useLocation ? 'true' : 'false');
-                if (state.onLocationToggle) {
-                    state.onLocationToggle(useLocation);
-                }
-            });
-        }
-
-        // Close modal on Escape key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && modal.classList.contains('show')) {
-                closeSettingsModal();
+        // Handle changes to the Dark and Light options.
+        themeOptions.addEventListener('change', (e) => {
+            if (e.target.name === 'theme' && state.onThemeChange) {
+                state.onThemeChange(e.target.value);
             }
         });
     }
@@ -144,12 +107,8 @@ const ModalManager = (() => {
     function openSettingsModal() {
         const modal = state.settingsModal || document.getElementById('settings-modal');
         if (modal) {
+            _syncThemeRadios();
             modal.classList.add('show');
-            // Focus the first input for accessibility
-            const firstInput = modal.querySelector('select');
-            if (firstInput) {
-                setTimeout(() => firstInput.focus(), 100);
-            }
         }
     }
 
@@ -163,27 +122,6 @@ const ModalManager = (() => {
         }
     }
 
-    /**
-     * Updates the location status message in settings
-     * @param {string} message - Status message to display
-     * @param {string} [className] - Optional CSS class ('loading', 'loaded', or empty)
-     */
-    function setLocationStatus(message, className = '') {
-        const statusEl = state.locationStatus || document.getElementById('location-status');
-        if (statusEl) {
-            statusEl.textContent = message;
-            statusEl.className = 'setting-status' + (className ? ' ' + className : '');
-        }
-    }
-
-    /**
-     * Checks if location setting is enabled
-     * @returns {boolean} True if user has enabled location
-     */
-    function isLocationEnabled() {
-        return Utils.SafeStorage.getItem('useLocation') === 'true';
-    }
-
     // ========================================
     // WELCOME MODAL
     // ========================================
@@ -193,30 +131,13 @@ const ModalManager = (() => {
      */
     function initWelcomeModal() {
         const modal = document.getElementById('welcome-modal');
-        const closeBtn = document.getElementById('welcome-close-btn');
 
-        if (!modal || !closeBtn) return;
+        if (!modal) return;
 
         state.welcomeModal = modal;
 
-        // Close modal when clicking close button
-        closeBtn.addEventListener('click', () => {
-            closeWelcomeModal();
-        });
-
-        // Close modal when clicking outside
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                closeWelcomeModal();
-            }
-        });
-
-        // Close modal on Escape key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && modal.classList.contains('show')) {
-                closeWelcomeModal();
-            }
-        });
+        // Close modal when clicking anywhere on it, or on Escape
+        wireDismiss(modal, closeWelcomeModal, { closeOnAnyClick: true });
     }
 
     /**
@@ -262,17 +183,15 @@ const ModalManager = (() => {
     // ========================================
 
     return {
+        // Shared
+        wireDismiss,
+
         // Settings modal
         initSettingsModal,
         openSettingsModal,
-        closeSettingsModal,
-        setLocationStatus,
-        isLocationEnabled,
 
         // Welcome modal
         initWelcomeModal,
-        showWelcomeModalIfFirstVisit,
-        openWelcomeModal,
-        closeWelcomeModal
+        showWelcomeModalIfFirstVisit
     };
 })();

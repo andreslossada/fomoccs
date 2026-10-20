@@ -13,14 +13,102 @@ const MarkerController = (() => {
 
     const state = {
         appState: null,
-        config: null,
         filterProvider: null,
-        eventProvider: null
+        eventProvider: null,
+        // Cached label events from the most recent two filter signatures.
+        // Lets a select→deselect roundtrip reuse work, and lets viewport
+        // refreshes hit the cache for already-computed locations.
+        _labelCache: new Map(), // signature -> Map<locationKey, Event[]>
+        _labelCacheOrder: [],   // signatures in MRU order (max 2)
+        _lastDisplay: null      // { locationsToDisplay } for moveend label refresh
     };
+
+    const LABEL_CACHE_MAX = 2;
+
+    function _signatureFromCtx(sortCtx) {
+        const tagStates = sortCtx.activeFilters.tagStates || {};
+        const parts = [];
+        for (const tag in tagStates) {
+            const s = tagStates[tag];
+            if (s && s !== 'unselected') parts.push(`${tag}:${s[0]}`);
+        }
+        parts.sort();
+        // Both dates affect eventsByLatLngInDateRange, so both must be in the
+        // signature — otherwise narrowing/widening the end date would return
+        // stale label events from the prior range.
+        const startMs = sortCtx.selectedStartDate ? sortCtx.selectedStartDate.getTime() : 0;
+        const endMs = sortCtx.selectedEndDate ? sortCtx.selectedEndDate.getTime() : 0;
+        const forceId = sortCtx.forceDisplayEventId || '';
+        parts.push(`formats:${typeof FormatSelector !== 'undefined' ? JSON.stringify(FormatSelector.selection()) : 'all'}`);
+        parts.push('neighborhoods:all');
+        return `${startMs}-${endMs}|${forceId}|${parts.join(',')}`;
+    }
+
+    function _getOrCreateCacheBucket(signature) {
+        let bucket = state._labelCache.get(signature);
+        if (bucket) {
+            // Move to MRU position
+            const idx = state._labelCacheOrder.indexOf(signature);
+            if (idx > -1) state._labelCacheOrder.splice(idx, 1);
+            state._labelCacheOrder.push(signature);
+            return bucket;
+        }
+        bucket = new Map();
+        state._labelCache.set(signature, bucket);
+        state._labelCacheOrder.push(signature);
+        while (state._labelCacheOrder.length > LABEL_CACHE_MAX) {
+            const evicted = state._labelCacheOrder.shift();
+            state._labelCache.delete(evicted);
+        }
+        return bucket;
+    }
 
     // ========================================
     // POPUP CONTENT
     // ========================================
+
+    /**
+     * Builds the shared render inputs for a location popup from current
+     * filter/forced-event state, so the lazy popup callback and the
+     * open-popup refresh stay in sync.
+     * @param {string} locationKey - Location key in "lat,lng" format
+     * @returns {Object} { locationInfo, eventsToDisplay, currentPopupFilters,
+     *                     filterFunctions, forceDisplayEventId, selectedDates }
+     */
+    function _buildPopupRenderInputs(locationKey) {
+        const selectedDates = state.filterProvider.getSelectedDates();
+        const currentPopupFilters = {
+            sliderStartDate: selectedDates[0],
+            sliderEndDate: selectedDates[1],
+            tagStates: state.filterProvider.getTagStates()
+        };
+
+        const filterFunctions = {
+            getLocationInfo: (key) => state.appState.locationsByLatLng[key]
+        };
+
+        // Handle forced display event (e.g., from search)
+        let eventsToDisplay = state.appState.eventsByLatLngInDateRange[locationKey] || [];
+        const forceDisplayEventId = state.eventProvider.getForceDisplayEventId();
+        if (forceDisplayEventId) {
+            const isForcedEventPresent = eventsToDisplay.some(e => e.id === forceDisplayEventId);
+            if (!isForcedEventPresent) {
+                const forcedEvent = state.appState.eventsById[forceDisplayEventId];
+                if (forcedEvent && forcedEvent.locationKey === locationKey) {
+                    eventsToDisplay = [...eventsToDisplay, forcedEvent];
+                }
+            }
+        }
+
+        return {
+            locationInfo: state.appState.locationsByLatLng[locationKey],
+            eventsToDisplay,
+            currentPopupFilters,
+            filterFunctions,
+            forceDisplayEventId,
+            selectedDates
+        };
+    }
 
     /**
      * Creates a popup content callback for a location
@@ -29,34 +117,9 @@ const MarkerController = (() => {
      */
     function createPopupContentCallback(locationKey) {
         return () => {
-            const selectedDates = state.filterProvider.getSelectedDates();
-            const currentPopupFilters = {
-                sliderStartDate: selectedDates[0],
-                sliderEndDate: selectedDates[1],
-                tagStates: state.filterProvider.getTagStates()
-            };
-
-            const eventsAtLocationInDateRange = state.appState.eventsByLatLngInDateRange[locationKey] || [];
-            const filterFunctions = {
-                isEventMatchingTagFilters: (event, tagStates) => FilterManager.isEventMatchingTagFilters(event, tagStates),
-                getLocationInfo: (key) => state.appState.locationsByLatLng[key]
-            };
-
-            // Handle forced display event (e.g., from search)
-            let eventsToDisplay = eventsAtLocationInDateRange;
-            const forceDisplayEventId = state.eventProvider.getForceDisplayEventId();
-            if (forceDisplayEventId) {
-                const isForcedEventPresent = eventsToDisplay.some(e => e.id === forceDisplayEventId);
-                if (!isForcedEventPresent) {
-                    const forcedEvent = state.appState.eventsById[forceDisplayEventId];
-                    if (forcedEvent && forcedEvent.locationKey === locationKey) {
-                        eventsToDisplay = [...eventsToDisplay, forcedEvent];
-                    }
-                }
-            }
-
-            const locationInfo = state.appState.locationsByLatLng[locationKey];
-            return UIManager.createLocationPopupContent(
+            const { locationInfo, eventsToDisplay, currentPopupFilters, filterFunctions,
+                    forceDisplayEventId, selectedDates } = _buildPopupRenderInputs(locationKey);
+            return PopupContentBuilder.createLocationPopupContent(
                 locationInfo,
                 eventsToDisplay,
                 currentPopupFilters,
@@ -78,7 +141,54 @@ const MarkerController = (() => {
      *
      * @param {Object} locationsToDisplay - Object mapping locationKey to array of events
      */
+    function _buildSortCtx() {
+        const selectedDates = state.filterProvider.getSelectedDates();
+        const tagStates = state.filterProvider.getTagStates();
+        // Derive tag-state Sets ONCE per render, not per location. Hands them
+        // to sortEventsForLocation via ctx.tagSets so the inner loop skips the
+        // O(|tagStates|) partition work per call.
+        const { selectedTagsSet, requiredTagsSet, forbiddenTagsSet } = Utils.partitionTagStates(tagStates);
+        return {
+            activeFilters: { tagStates, sliderStartDate: selectedDates[0] },
+            filterFunctions: { getLocationInfo: (key) => state.appState.locationsByLatLng[key] },
+            selectedStartDate: selectedDates[0],
+            selectedEndDate: selectedDates[1],
+            forceDisplayEventId: state.eventProvider.getForceDisplayEventId(),
+            tagSets: { selectedTagsSet, requiredTagsSet, forbiddenTagsSet }
+        };
+    }
+
+    /**
+     * Resolves the label events for one location: locations with no events in
+     * range or outside the viewport fall back to the raw event order; otherwise
+     * return cached or freshly-computed popup-ordered events (caching them).
+     * Pass visibleSet=null to compute for all locations (no viewport skip).
+     *
+     * @returns {{events: Event[], source: 'empty'|'skipped'|'cached'|'computed'}}
+     */
+    function _resolveLabelEvents(locationKey, fallbackEvents, sortCtx, cacheBucket, visibleSet) {
+        const eventsAtLocation = state.appState.eventsByLatLngInDateRange[locationKey] || [];
+        if (eventsAtLocation.length === 0) {
+            return { events: fallbackEvents, source: 'empty' };
+        }
+        if (visibleSet && !visibleSet.has(locationKey)) {
+            return { events: fallbackEvents, source: 'skipped' };
+        }
+        const cached = cacheBucket.get(locationKey);
+        if (cached) {
+            return { events: cached, source: 'cached' };
+        }
+        const { sectionEvents } = PopupContentBuilder.getDefaultSectionAndEvents(eventsAtLocation, sortCtx);
+        cacheBucket.set(locationKey, sectionEvents);
+        return { events: sectionEvents, source: 'computed' };
+    }
+
     function displayEventsOnMap(locationsToDisplay) {
+        const FP = (typeof window !== 'undefined' && window.FilterProfiler) || null;
+        if (FP) FP.mark('fp:dom:start');
+
+        state._lastDisplay = { locationsToDisplay };
+
         // Build popup content callbacks for all locations
         const callbacks = new Map();
         for (const locationKey in locationsToDisplay) {
@@ -86,11 +196,139 @@ const MarkerController = (() => {
             callbacks.set(locationKey, createPopupContentCallback(locationKey));
         }
 
-        // Update the WebGL marker data
+        if (FP) {
+            FP.mark('fp:dom:callbacks');
+            FP.measure('fp:dom:buildCallbacks', 'fp:dom:start', 'fp:dom:callbacks');
+        }
+
+        const sortCtx = _buildSortCtx();
+
+        // Only compute popup-ordered labels for in-viewport locations. Off-screen
+        // markers fall back to the raw event order — when the user pans to them,
+        // moveend triggers refreshLabelsForViewport() to upgrade them.
+        const visibleSet = state.appState.currentlyVisibleMatchingLocationKeys;
+        const useViewport = visibleSet && typeof visibleSet.has === 'function' && visibleSet.size > 0;
+
+        const signature = _signatureFromCtx(sortCtx);
+        const cacheBucket = _getOrCreateCacheBucket(signature);
+
+        const labelEventsByKey = {};
+        let _computed = 0, _cached = 0, _skipped = 0;
+        for (const locationKey of callbacks.keys()) {
+            const { events, source } = _resolveLabelEvents(
+                locationKey, locationsToDisplay[locationKey], sortCtx, cacheBucket,
+                useViewport ? visibleSet : null
+            );
+            labelEventsByKey[locationKey] = events;
+            if (source === 'computed') _computed++;
+            else if (source === 'cached') _cached++;
+            else if (source === 'skipped') _skipped++;
+        }
+
+        if (FP && FP._active) {
+            FP.mark('fp:dom:labelLoop');
+            FP.measure('fp:dom:labelLoop', 'fp:dom:callbacks', 'fp:dom:labelLoop');
+            console.log(`  [dom labelLoop] computed ${_computed} · cached ${_cached} · skipped(off-viewport) ${_skipped}`);
+        }
+
+        // Update the WebGL marker data — pass the popup-sorted events so the
+        // secondary label and "+N" count agree with the popup.
         MapManager.updateMarkerData(
-            locationsToDisplay,
+            labelEventsByKey,
             state.appState.locationsByLatLng,
-            callbacks
+            callbacks,
+            locationsToDisplay
+        );
+
+        if (FP) {
+            FP.mark('fp:dom:end');
+            FP.measure('fp:dom:updateMarkerData', 'fp:dom:labelLoop', 'fp:dom:end');
+        }
+
+        // Idle-warm the cache for off-viewport locations so subsequent pans
+        // are instant. Runs in chunks during browser idle time so it never
+        // blocks user interaction.
+        _scheduleIdleWarm(sortCtx, locationsToDisplay, cacheBucket);
+    }
+
+    let _idleWarmHandle = null;
+    let _idleWarmGeneration = 0;
+    function _scheduleIdleWarm(sortCtx, locationsToDisplay, cacheBucket) {
+        const generation = ++_idleWarmGeneration;
+        if (_idleWarmHandle != null) {
+            (window.cancelIdleCallback || clearTimeout)(_idleWarmHandle);
+            _idleWarmHandle = null;
+        }
+        const ric = window.requestIdleCallback || ((cb) => setTimeout(() => cb({ timeRemaining: () => 16, didTimeout: false }), 50));
+        const keysToWarm = [];
+        for (const locationKey in locationsToDisplay) {
+            if (locationsToDisplay[locationKey].length === 0) continue;
+            if (cacheBucket.has(locationKey)) continue;
+            keysToWarm.push(locationKey);
+        }
+        if (keysToWarm.length === 0) return;
+
+        let i = 0;
+        const step = (deadline) => {
+            // A newer render rescheduled the warm (and owns the current cache
+            // bucket) — bail out so we don't waste work on a stale one.
+            if (generation !== _idleWarmGeneration) { _idleWarmHandle = null; return; }
+
+            while (i < keysToWarm.length && deadline.timeRemaining() > 1) {
+                const key = keysToWarm[i++];
+                if (cacheBucket.has(key)) continue;
+                const eventsAtLocation = state.appState.eventsByLatLngInDateRange[key] || [];
+                if (eventsAtLocation.length === 0) continue;
+                const { sectionEvents } = PopupContentBuilder.getDefaultSectionAndEvents(eventsAtLocation, sortCtx);
+                cacheBucket.set(key, sectionEvents);
+            }
+            if (i < keysToWarm.length) {
+                _idleWarmHandle = ric(step);
+            } else {
+                _idleWarmHandle = null;
+            }
+        };
+        _idleWarmHandle = ric(step);
+    }
+
+    /**
+     * Refreshes marker labels for newly-visible locations after a viewport change.
+     * Cheaper than displayEventsOnMap — reuses cached locations and only computes
+     * for locations that just entered the viewport.
+     */
+    function refreshLabelsForViewport() {
+        if (!state._lastDisplay) return;
+        const { locationsToDisplay } = state._lastDisplay;
+        const visibleSet = state.appState.currentlyVisibleMatchingLocationKeys;
+        if (!visibleSet || typeof visibleSet.has !== 'function') return;
+
+        const sortCtx = _buildSortCtx();
+        const signature = _signatureFromCtx(sortCtx);
+        const cacheBucket = _getOrCreateCacheBucket(signature);
+
+        let dirty = false;
+        const labelEventsByKey = {};
+        for (const locationKey in locationsToDisplay) {
+            const events = locationsToDisplay[locationKey];
+            if (!events || events.length === 0) continue;
+            const resolved = _resolveLabelEvents(locationKey, events, sortCtx, cacheBucket, visibleSet);
+            labelEventsByKey[locationKey] = resolved.events;
+            if (resolved.source === 'computed') dirty = true;
+        }
+        if (!dirty) return;
+
+        // Build callbacks again so MapManager has the same shape it expects.
+        const callbacks = new Map();
+        for (const locationKey in labelEventsByKey) {
+            if (labelEventsByKey[locationKey] && labelEventsByKey[locationKey].length > 0) {
+                callbacks.set(locationKey, createPopupContentCallback(locationKey));
+            }
+        }
+        MapManager.updateMarkerData(
+            labelEventsByKey,
+            state.appState.locationsByLatLng,
+            callbacks,
+            locationsToDisplay
         );
     }
 
@@ -100,52 +338,81 @@ const MarkerController = (() => {
      * @param {maplibregl.Popup} openPopup - The open popup to update
      * @returns {boolean} True if popup was updated, false otherwise
      */
-    function updateOpenPopupContent(openPopup) {
-        // Handle bottom sheet case (mobile) — openPopup is null but sheet is open
-        const isBottomSheet = !openPopup && typeof BottomSheet !== 'undefined' && BottomSheet.isDetailMode();
-        if (!openPopup && !isBottomSheet) return false;
+    /**
+     * Force a rebuild of the currently open popup/bottom sheet, bypassing the
+     * unchanged-content early-out in updateOpenPopupContent (whose signature
+     * keys on event ids/tags/dates, not description text). Used when deferred
+     * descriptions arrive for events whose popup is already open.
+     */
+    function refreshOpenPopupContent() {
+        state._popupContentSig = null;
+        return updateOpenPopupContent(MapManager.getCurrentPopup());
+    }
 
-        const locationKey = isBottomSheet
-            ? BottomSheet.getCurrentLocationKey()
+    function updateOpenPopupContent(openPopup) {
+        // Handle sheet detail case (mobile) — openPopup is null but sheet is open
+        const isSheetDetail = !openPopup && typeof Sheet !== 'undefined' && Sheet.isDetailMode();
+        if (!openPopup && !isSheetDetail) return false;
+
+        const locationKey = isSheetDetail
+            ? Sheet.getCurrentLocationKey()
             : MapManager.getCurrentPopupLocationKey();
         if (!locationKey) return false;
 
-        const locationInfo = state.appState.locationsByLatLng[locationKey];
-        const eventsAtLocationInDateRange = state.appState.eventsByLatLngInDateRange[locationKey] || [];
+        const { locationInfo, eventsToDisplay, currentPopupFilters, filterFunctions,
+                forceDisplayEventId, selectedDates } = _buildPopupRenderInputs(locationKey);
 
-        const selectedDates = state.filterProvider.getSelectedDates();
-        const currentPopupFilters = {
-            sliderStartDate: selectedDates[0],
-            sliderEndDate: selectedDates[1],
-            tagStates: state.filterProvider.getTagStates()
-        };
+        // Early-out: rebuilding the popup DOM is the costliest part of a tag
+        // toggle when a popup is open (~3-10ms). The event list at a location is
+        // date-filtered, not tag-filtered, so it's stable across tag toggles;
+        // the only filter changes that alter this popup's rendering (event sort
+        // order, dimming of non-matching events, tag-chip styling) are:
+        //   - a change to any required/forbidden tag (can dim/reorder anything), or
+        //   - a change to a *selected* tag that actually appears on these events.
+        // Toggling a selected tag absent from this location's events — the common
+        // case while filtering the whole map with a popup open — can't change
+        // anything here, so we skip the rebuild. Signature captures exactly those
+        // inputs plus the date range, the event set, and any forced event.
+        const tagStates = currentPopupFilters.tagStates || {};
+        const localTags = new Set();
+        for (const ev of eventsToDisplay) {
+            if (ev.tags) for (const t of ev.tags) localTags.add(t);
+        }
+        const relevantTagParts = [];
+        for (const tag in tagStates) {
+            const st = tagStates[tag];
+            if (st === 'required' || st === 'forbidden') relevantTagParts.push(tag + ':' + st);
+            else if (st === 'selected' && localTags.has(tag)) relevantTagParts.push(tag + ':s');
+        }
+        relevantTagParts.sort();
+        const contentSig = [
+            locationKey,
+            currentPopupFilters.sliderStartDate, currentPopupFilters.sliderEndDate,
+            forceDisplayEventId || '',
+            eventsToDisplay.map(e => e.id).join(','),
+            relevantTagParts.join('|')
+        ].join('§');
 
-        const filterFunctions = {
-            isEventMatchingTagFilters: (event, tagStates) => FilterManager.isEventMatchingTagFilters(event, tagStates),
-            getLocationInfo: (key) => state.appState.locationsByLatLng[key]
-        };
-
-        // Handle forced display event
-        let eventsToDisplay = eventsAtLocationInDateRange;
-        const forceDisplayEventId = state.eventProvider.getForceDisplayEventId();
-        if (forceDisplayEventId) {
-            const isForcedEventPresent = eventsToDisplay.some(e => e.id === forceDisplayEventId);
-            if (!isForcedEventPresent) {
-                const forcedEvent = state.appState.eventsById[forceDisplayEventId];
-                if (forcedEvent && forcedEvent.locationKey === locationKey) {
-                    eventsToDisplay = [...eventsToDisplay, forcedEvent];
-                }
-            }
+        if (!forceDisplayEventId && state._popupContentSig === contentSig) {
+            return true; // popup already shows the current content — nothing to do
         }
 
-        const newContent = UIManager.createLocationPopupContent(
+        // Preserve the currently active tab across rebuilds
+        const currentPopupEl = isSheetDetail
+            ? document.querySelector('#sheet .sheet-detail .maplibre-popup-content')
+            : openPopup.getElement()?.querySelector('.maplibre-popup-content');
+        const activeTabBtn = currentPopupEl?.querySelector('.popup-tab-bar .popup-tab.active');
+        const previousActiveTab = activeTabBtn ? activeTabBtn.textContent : null;
+
+        const newContent = PopupContentBuilder.createLocationPopupContent(
             locationInfo,
             eventsToDisplay,
             currentPopupFilters,
             state.appState.geotagsSet,
             filterFunctions,
             forceDisplayEventId,
-            selectedDates[0]
+            selectedDates[0],
+            previousActiveTab
         );
 
         // Update popup content
@@ -156,8 +423,8 @@ const MarkerController = (() => {
         } else {
             wrapper.innerHTML = newContent;
         }
-        if (isBottomSheet) {
-            BottomSheet.updateContent(wrapper);
+        if (isSheetDetail) {
+            Sheet.updateContent(wrapper);
         } else {
             openPopup.setDOMContent(wrapper);
         }
@@ -165,11 +432,16 @@ const MarkerController = (() => {
         // Clear forced display after updating
         state.eventProvider.setForceDisplayEventId(null);
 
+        // Remember what we just rendered so an unrelated next toggle can skip
+        // the rebuild. Forced-display renders inject a transient event, so don't
+        // cache them as the steady-state signature.
+        state._popupContentSig = forceDisplayEventId ? null : contentSig;
+
         return true;
     }
 
     /**
-     * Finds the currently open popup or bottom sheet if any
+     * Finds the currently open popup or sheet detail if any
      * @returns {Object|null} Object with {popup, locationKey} or null
      */
     function findOpenPopup() {
@@ -177,24 +449,11 @@ const MarkerController = (() => {
         const locationKey = MapManager.getCurrentPopupLocationKey();
         if (popup) return { popup, locationKey };
 
-        // Check bottom sheet detail mode (mobile)
-        if (typeof BottomSheet !== 'undefined' && BottomSheet.isDetailMode()) {
-            return { popup: null, locationKey: BottomSheet.getCurrentLocationKey() };
+        // Check sheet detail mode (mobile)
+        if (typeof Sheet !== 'undefined' && Sheet.isDetailMode()) {
+            return { popup: null, locationKey: Sheet.getCurrentLocationKey() };
         }
         return null;
-    }
-
-    /**
-     * Checks if a location has matching events based on current tag filters
-     * @param {string} locationKey - Location key in "lat,lng" format
-     * @returns {boolean} True if location has at least one matching event
-     */
-    function hasMatchingEvents(locationKey) {
-        const eventsAtLocation = state.appState.eventsByLatLngInDateRange[locationKey] || [];
-        const currentTagStates = state.filterProvider.getTagStates();
-        return eventsAtLocation.some(event =>
-            FilterManager.isEventMatchingTagFilters(event, currentTagStates)
-        );
     }
 
     // ========================================
@@ -203,7 +462,6 @@ const MarkerController = (() => {
 
     function init(config) {
         state.appState = config.appState;
-        state.config = config.config;
         state.filterProvider = config.filterProvider;
         state.eventProvider = config.eventProvider;
     }
@@ -235,10 +493,10 @@ const MarkerController = (() => {
     return {
         init,
         displayEventsOnMap,
+        refreshLabelsForViewport,
         updateOpenPopupContent,
+        refreshOpenPopupContent,
         findOpenPopup,
-        hasMatchingEvents,
-        createPopupContentCallback,
         flyToLocationAndOpenPopup
     };
 })();

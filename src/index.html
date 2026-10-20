@@ -1,59 +1,142 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Fomoccs Caracas</title>
+    <title>{{SITE_NAME}}</title>
     <link rel="icon" href="images/beer.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin=""/>
-    <link rel="preconnect" href="https://rsms.me/">
-    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+
+    <!-- Android System WebView glyph fix. Our map styles ship no `glyphs` URL,
+         so MapLibre renders every label locally via its TinySDF fallback, whose
+         canvas is an OffscreenCanvas whenever one is defined. On Android WebView,
+         main-thread OffscreenCanvas 2D text readback comes back blank, so every
+         glyph rasterizes empty and the map shows no labels at all. Desktop works;
+         iOS lacks main-thread OffscreenCanvas and already falls back to a DOM
+         canvas. Probe the readback and, only when it is broken, drop the global so
+         MapLibre uses the DOM-canvas path too. Runs before maplibre loads. -->
+    <script>
+    (function () {
+        if (typeof OffscreenCanvas === 'undefined') return;
+        var broken = false;
+        try {
+            var oc = new OffscreenCanvas(24, 24);
+            var ctx = oc.getContext('2d', { willReadFrequently: true });
+            if (!ctx) {
+                broken = true;
+            } else {
+                ctx.textBaseline = 'top';
+                ctx.font = '20px sans-serif';
+                ctx.fillStyle = '#000';
+                ctx.fillText('A', 2, 2);
+                var px = ctx.getImageData(0, 0, 24, 24).data;
+                broken = true;
+                for (var i = 3; i < px.length; i += 4) {
+                    if (px[i] !== 0) { broken = false; break; }
+                }
+            }
+        } catch (e) {
+            broken = true;
+        }
+        if (broken) {
+            try { delete window.OffscreenCanvas; }
+            catch (e) { try { window.OffscreenCanvas = undefined; } catch (e2) {} }
+        }
+    })();
+    </script>
+
+    <!-- Warm up the only cross-origin we still use: the map tile/glyph CDN. -->
+    <link rel="preconnect" href="https://api.protomaps.com" crossorigin>
+    <link rel="dns-prefetch" href="https://api.protomaps.com">
+
+    <!-- Start the render-critical fetches during HTML parse, before the
+         bottom-of-body scripts download + execute and App.init() runs. -->
+    <link rel="preload" as="script" href="vendor/maplibre-gl-5.24.0.js">
+    <!-- crossorigin is required on as=fetch preloads so the request's CORS mode
+         matches fetch()'s default — without it the file is downloaded twice. -->
+    <link rel="preload" as="fetch" href="data/tags.json" crossorigin>
+    <link rel="preload" as="fetch" href="data/tag_hierarchy.json" crossorigin>
+
+    <!-- MapLibre is self-hosted; the version lives in the filename so the
+         long-lived immutable cache can never pin an old copy. -->
+    <link rel="stylesheet" href="vendor/maplibre-gl-5.24.0.css"/>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" crossorigin="anonymous">
 </head>
 <body>
     <div id="app-container">
         <div id="filter-panel" class="tags-collapsed">
             <div id="loading-container">
-                <p class="loading-message">Loading... please wait 🧘</p>
+                <p class="loading-message">Cargando... espera un momento 🧘</p>
+                <div class="loading-progress" role="progressbar" aria-label="Progreso de carga" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div class="loading-progress-bar"></div>
+                </div>
             </div>
             <div id="filter-container" class="initially-hidden">
                 <div>
                     <div id="logo-menu-wrapper">
-                        <button id="logo-container" class="initially-hidden" aria-label="Open menu" aria-haspopup="true" aria-expanded="false">
-                            <img src="images/beer.svg" alt="Fomoccs Caracas Logo" id="logo">
+                        <button id="logo-container" class="initially-hidden" aria-label="Abrir menú" aria-haspopup="true" aria-expanded="false">
+                            <img src="images/beer.svg" alt="{{SITE_NAME}} Logo" id="logo">
                         </button>
-                        <div id="logo-menu" class="logo-menu-hidden" role="menu" aria-label="Logo menu">
-                            <button type="button" id="settings-btn" role="menuitem">⚙️ Settings</button>
-                            <button type="button" id="share-view-btn" role="menuitem">🔗 Share this view</button>
-                            <a href="admin" target="_blank" role="menuitem">🛠️ Database View</a>
-                            <button type="button" id="feedback-btn" role="menuitem">💬 Submit feedback</button>
-                            <a href="about.html" target="_blank" role="menuitem">About Fomoccs</a>
+                        <div id="logo-menu" class="logo-menu-hidden" role="menu" aria-label="Menú del logo">
+                            <button type="button" id="settings-btn" role="menuitem">⚙️ Ajustes</button>
+                            <button type="button" id="share-view-btn" role="menuitem">🔗 Compartir esta vista</button>
+                            <button type="button" id="feedback-btn" role="menuitem">💬 Enviar comentarios</button>
+                            <a href="about.html" target="_blank" role="menuitem">{{EMOJI}} Sobre {{DOMAIN}}</a>
+                            <a href="privacy.html" target="_blank" role="menuitem">🔒 Privacidad</a>
                         </div>
                     </div>
                     <div class="filter-group" id="omni-search-filter">
                         <div class="search-input-container">
-                            <input type="text" id="omni-search-input" placeholder="Search places, events, tags..." autocomplete="off" aria-label="Search places, events, tags">
+                            <input type="text" id="omni-search-input" placeholder="Buscar lugares, eventos, etiquetas..." autocomplete="off" aria-label="Buscar lugares, eventos, etiquetas">
                             <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 0 24 24" width="18px" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
                         </div>
                     </div>
                     <div class="filter-group" id="date-filter-container">
                         <div class="date-picker-container">
-                            <input type="text" id="date-picker" placeholder="Select date range..." aria-label="Select date range">
+                            <input type="text" id="date-picker" placeholder="Selecciona un rango de fechas..." aria-label="Selecciona un rango de fechas">
                             <span id="date-picker-sizer" aria-hidden="true"></span>
                             <svg class="calendar-icon" xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 0 24 24" width="18px" fill="currentColor" aria-hidden="true"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7v-5z"/></svg>
                         </div>
                     </div>
+                    <!-- Format and tag selectors only. fomo.nyc also ships
+                         neighborhood and venue selectors, but both filter on
+                         tags attached to locations and this deployment has
+                         neither, so the popovers would open empty. -->
+                    <div class="selector-controls">
+                        <button type="button" id="format-selector-button" popovertarget="format-selector-panel"
+                            aria-haspopup="dialog" aria-expanded="false" aria-controls="format-selector-panel"><span>Todos los eventos</span><span aria-hidden="true"> ▾</span></button>
+                        <div id="format-selector-panel" popover="auto" role="dialog" aria-label="Tipos de evento"></div>
+                        <button type="button" id="tag-selector-button" popovertarget="tag-selector-panel"
+                            aria-haspopup="dialog" aria-expanded="false" aria-controls="tag-selector-panel"><span>Todas las etiquetas</span><span aria-hidden="true"> ▾</span></button>
+                        <div id="tag-selector-panel" popover="auto" role="dialog" aria-label="Etiquetas"></div>
+                    </div>
                 </div>
-                <div id="selected-tags-display"></div>
             </div>
-            <div id="tags-wrapper" class="initially-hidden">
-                <div id="results-container" role="list" aria-label="Search results"></div>
-            </div>
-            
-            <button id="expand-filter-panel-button" class="initially-hidden collapsed" aria-label="Expand Filter Panel" title="Expand Filter Panel">
+            <button id="expand-filter-panel-button" class="initially-hidden collapsed" aria-label="Expandir panel de filtros" title="Expandir panel de filtros">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"></polyline></svg>
             </button>
         </div>
+
+        <!-- Event list / search results sheet, shared by desktop and mobile.
+             Desktop: slides in from the left edge; the floating #sheet-handle
+             "Show list" button appears at the screen's left edge only while
+             collapsed (the open sheet is dismissed by clicking the map).
+             Mobile: a bottom sheet with a drag grip; .sheet-detail hosts a
+             tapped marker's popup content. When closed, the sheet's top edge
+             (the grip strip) stays peeking at the bottom of the screen — tap
+             or drag up to reopen. -->
+        <div id="sheet" class="sheet-collapsed initially-hidden">
+            <div class="sheet-drag-area" role="button" aria-label="Mostrar u ocultar la lista de eventos"><div class="sheet-grip"></div></div>
+            <div class="sheet-content">
+                <div id="tags-wrapper">
+                    <div id="results-container" role="list" aria-label="Resultados de búsqueda"></div>
+                </div>
+                <div class="sheet-detail"></div>
+            </div>
+        </div>
+        <button id="sheet-handle" class="sheet-collapsed initially-hidden" type="button" aria-label="Mostrar lista" aria-expanded="false">
+            <svg class="sheet-handle-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M8 5l8 7-8 7z" fill="currentColor"/></svg>
+            <span class="sheet-handle-label" aria-hidden="true">Mostrar lista</span>
+        </button>
 
         <div id="map-container">
             <div id="map-wrapper">
@@ -63,16 +146,10 @@
     </div>
 
     <!-- Welcome Modal -->
-    <div id="welcome-modal" class="modal" role="dialog" aria-labelledby="welcome-modal-title" aria-modal="true">
+    <div id="welcome-modal" class="modal" role="dialog" aria-modal="true" aria-label="Bienvenida">
         <div class="modal-content">
-            <div class="modal-header">
-                <img src="images/logo.svg" alt="Fomoccs Caracas Logo" class="modal-logo">
-                <button id="welcome-close-btn" class="modal-close-btn" aria-label="Close welcome">&times;</button>
-            </div>
             <div class="modal-body">
-                <p>Bienvenido! <strong>Fomoccs</strong> es un mapa interactivo de eventos en Caracas.</p>
-                <p>Events are collected automatically from many different websites every day.</p>
-                <p>This project is a labor of love and will always be free and open-source. <a href="about.html" target="_blank" rel="noopener" class="external-link">Learn more <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a></p>
+                {{WELCOME_MODAL}}
             </div>
         </div>
     </div>
@@ -84,15 +161,15 @@
     <div id="feedback-modal" class="modal" role="dialog" aria-labelledby="feedback-modal-title" aria-modal="true">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 id="feedback-modal-title">Submit Feedback</h2>
-                <button id="feedback-close-btn" class="modal-close-btn" aria-label="Close feedback">&times;</button>
+                <h2 id="feedback-modal-title">Enviar comentarios</h2>
+                <button id="feedback-close-btn" class="modal-close-btn" aria-label="Cerrar comentarios">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="feedback-description">Ayuda a mejorar <strong>Fomoccs</strong>! 💖 <br> Comparte tus ideas, reporta errores o sugiere nuevas funciones</p>
-                <textarea id="feedback-message" placeholder="Enter your feedback here..." rows="6" maxlength="10000" aria-label="Feedback message"></textarea>
+                <p class="feedback-description">Ayuda a mejorar <strong>{{DOMAIN}}</strong>! 💖 <br> Comparte tus ideas, reporta errores o sugiere nuevas funciones {{EMOJI}}</p>
+                <textarea id="feedback-message" placeholder="Escribe aquí tu comentario..." rows="6" maxlength="10000" aria-label="Comentario"></textarea>
                 <div class="feedback-footer">
                     <span id="feedback-char-count" class="feedback-char-count">0 / 10000</span>
-                    <button id="feedback-submit-btn" class="feedback-submit-btn" disabled>Submit</button>
+                    <button id="feedback-submit-btn" class="feedback-submit-btn" disabled>Enviar</button>
                 </div>
                 <div id="feedback-status" class="feedback-status" aria-live="polite"></div>
             </div>
@@ -103,43 +180,29 @@
     <div id="settings-modal" class="modal" role="dialog" aria-labelledby="settings-modal-title" aria-modal="true">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 id="settings-modal-title">Settings</h2>
-                <button id="settings-close-btn" class="modal-close-btn" aria-label="Close settings">&times;</button>
+                <h2 id="settings-modal-title">Ajustes</h2>
+                <button id="settings-close-btn" class="modal-close-btn" aria-label="Cerrar ajustes">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="setting-group">
-                    <label class="setting-group-label">Theme</label>
-                    <div class="setting-options">
+                    <label class="setting-group-label">Tema</label>
+                    <div class="setting-options" id="theme-options">
                         <label class="setting-option">
                             <input type="radio" name="theme" value="dark" checked>
-                            <span>Dark</span>
+                            <span>Oscuro</span>
                         </label>
                         <label class="setting-option">
                             <input type="radio" name="theme" value="light">
-                            <span>Light</span>
+                            <span>Claro</span>
                         </label>
                     </div>
                 </div>
                 <div class="setting-group">
-                    <label class="setting-group-label">Icons</label>
-                    <div class="setting-options">
-                        <label class="setting-option">
-                            <input type="radio" name="emoji-font" value="system" checked>
-                            <span><span class="emoji-preview emoji-preview-system">🎺</span> Default</span>
-                        </label>
-                        <label class="setting-option">
-                            <input type="radio" name="emoji-font" value="noto">
-                            <span><img src="images/trumpet.svg" alt="🎺" class="emoji-preview-noto" width="20" height="20"> Noto</span>
-                        </label>
-                    </div>
-                    <span id="emoji-font-status" class="setting-status"></span>
-                </div>
-                <div class="setting-group">
-                    <label class="setting-group-label">Location</label>
+                    <label class="setting-group-label">Ubicación</label>
                     <div class="setting-options">
                         <label class="setting-option">
                             <input type="checkbox" id="use-location-toggle" name="use-location">
-                            <span>Center map on my location</span>
+                            <span>Centrar el mapa en mi ubicación</span>
                         </label>
                     </div>
                     <span id="location-status" class="setting-status"></span>
@@ -149,49 +212,52 @@
     </div>
     <link rel="stylesheet" href="css/index.css">
 
-    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
+    <script src="vendor/maplibre-gl-5.24.0.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr" crossorigin="anonymous"></script>
-
-    <!-- API base URL (overridden by build.js in production) -->
-    <script>var API_BASE_URL = "";</script>
 
     <!-- Core -->
     <script src="js/core/constants.js"></script>
     <script src="js/core/utils.js"></script>
+    <script src="js/core/colorUtils.js"></script>
+    <script src="js/core/formatColors.js"></script>
+    <script src="js/core/iconCatalog.js"></script>
     <script src="js/core/historyManager.js"></script>
     <script src="js/core/urlParams.js"></script>
 
     <!-- Data -->
+    <script src="js/data/feedAdapter.js"></script>
     <script src="js/data/filterManager.js"></script>
     <script src="js/data/dataManager.js"></script>
     <script src="js/data/searchManager.js"></script>
 
     <!-- Tags -->
     <script src="js/tags/tagColorManager.js"></script>
-    <script src="js/tags/relatedTagsManager.js"></script>
     <script src="js/tags/tagStateManager.js"></script>
     <script src="js/tags/sectionRenderer.js"></script>
     <script src="js/tags/searchController.js"></script>
     <script src="js/tags/filterPanelUI.js"></script>
-    <script src="js/tags/selectedTagsDisplay.js"></script>
 
     <!-- UI -->
     <script src="js/ui/modalManager.js"></script>
     <script src="js/ui/toastNotifier.js"></script>
     <script src="js/ui/gestureHandler.js"></script>
-    <script src="js/ui/bottomSheet.js"></script>
+    <script src="js/ui/sheet.js"></script>
+    <script src="js/ui/iconManager.js"></script>
     <script src="js/ui/popupContentBuilder.js"></script>
+    <script src="js/ui/listView.js"></script>
+    <script src="js/ui/formatSelector.js"></script>
+    <script src="js/ui/tagSelector.js"></script>
     <script src="js/ui/uiManager.js"></script>
-    <script src="js/ui/emojiManager.js"></script>
     <script src="js/ui/themeManager.js"></script>
     <script src="js/ui/feedbackManager.js"></script>
 
     <!-- Map -->
-    <script src="js/map/mapManager.js?v=4"></script>
+    <script src="js/map/dotDensityLayer.js"></script>
+    <script src="js/map/mapManager.js"></script>
     <script src="js/map/viewportManager.js"></script>
-    <script src="js/map/markerController.js?v=4"></script>
+    <script src="js/map/markerController.js"></script>
 
     <!-- Main Application -->
-    <script src="js/script.js?v=4"></script>
+    <script src="js/script.js"></script>
 </body>
 </html>

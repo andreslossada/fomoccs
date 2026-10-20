@@ -5,56 +5,77 @@
  *
  * Configures the font stack for the application:
  * - Inter/InterVariable as the primary UI font
- * - Noto Color Emoji for consistent emoji rendering (debug mode only)
+ * - Pictograms are bundled artwork rendered by IconManager
  * - Fallback to system sans-serif fonts
  *
  * Variable font support is detected via @supports and used when available.
  */
 
-/* === Emoji Font (Optional) === */
-/* Loaded only when .use-noto-emoji class is on body (settings toggle or "noto" Easter egg) */
-/* COLRv1 vector format: supported by Chrome, Edge, Firefox. Safari falls back to system emoji. */
+/* === Inter (self-hosted) === */
+/* Previously loaded from rsms.me; self-hosting removes a third-party origin
+ * (DNS + TLS handshake) from the critical path and lets us serve it
+ * same-origin with the long cache + compression in .htaccess. The variable
+ * font (one file) covers weights 100–900. font-display: swap keeps it
+ * non-render-blocking — UI text paints in the system fallback, then swaps. */
 @font-face {
-    font-family: 'Noto Color Emoji';
-    src: url('../fonts/NotoColorEmoji-COLRv1.woff2') format('woff2');
+    font-family: InterVariable;
+    font-style: normal;
+    font-weight: 100 900;
     font-display: swap;
+    src: url('../fonts/inter/InterVariable.woff2') format('woff2');
+}
+@font-face {
+    font-family: InterVariable;
+    font-style: italic;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url('../fonts/inter/InterVariable-Italic.woff2') format('woff2');
+}
+/* Fallback family name for browsers without variable-font support; points at
+ * the same file (renders at default weight) rather than pulling system fonts. */
+@font-face {
+    font-family: Inter;
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url('../fonts/inter/InterVariable.woff2') format('woff2');
+}
+@font-face {
+    font-family: Inter;
+    font-style: italic;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url('../fonts/inter/InterVariable-Italic.woff2') format('woff2');
 }
 
+/* Alias matching the map's MapLibre fontstack name. TinySDF rasterizes
+ * marker/tile labels into a detached canvas using the fontstack name
+ * ("Inter Regular") as the CSS font family — without this alias that
+ * resolves to the system sans-serif, not Inter. Same file as above.
+ * Note: cv05/ss03 are frozen into the woff2 itself (the canvas is detached,
+ * so CSS font-feature-settings can't reach it) — see
+ * scripts/freeze_inter_features.py; re-run it after any Inter upgrade.
+ * font-weight: 450 (not a range) is deliberate: TinySDF requests weight 400,
+ * and matching clamps it onto this face's range, pinning the wght axis at
+ * 450 — the label weight the old 48px PBF glyphs were instanced at. */
+@font-face {
+    font-family: 'Inter Regular';
+    font-style: normal;
+    font-weight: 450;
+    font-display: swap;
+    src: url('../fonts/inter/InterVariable.woff2') format('woff2');
+}
+
+/* === Emoji Font (Optional) === */
+/* COLRv1 vector format: supported by Chrome, Edge, Firefox. Safari falls back to system emoji. */
 :root {
     font-family: Inter, sans-serif;
-    font-feature-settings: 'liga' 1, 'calt' 1; /* fix for Chrome */
+    /* liga/calt: Chrome fix; cv05: tailed lowercase l; ss03: round quotes & commas */
+    font-feature-settings: 'liga' 1, 'calt' 1, 'cv05' 1, 'ss03' 1;
 }
 
 @supports (font-variation-settings: normal) {
     :root { font-family: InterVariable, sans-serif; }
 }
 
-/* Apply Noto Color Emoji when debug mode is enabled */
-body.use-noto-emoji,
-body.use-noto-emoji * {
-    font-family: Inter, 'Noto Color Emoji', sans-serif !important;
-}
-
-@supports (font-variation-settings: normal) {
-    body.use-noto-emoji,
-    body.use-noto-emoji * {
-        font-family: InterVariable, 'Noto Color Emoji', sans-serif !important;
-    }
-}
-
-/* Specifically target emoji elements */
-body.use-noto-emoji .popup-header-emoji,
-body.use-noto-emoji .popup-event-emoji {
-    font-family: 'Noto Color Emoji', sans-serif !important;
-}
-
-/* Exclude system emoji preview from Noto font */
-body.use-noto-emoji .emoji-preview-system {
-    font-family: Inter, sans-serif !important;
-}
-
-@supports (font-variation-settings: normal) {
-    body.use-noto-emoji .emoji-preview-system {
-        font-family: InterVariable, sans-serif !important;
-    }
-}
+.inline-icon { vertical-align: -0.15em; }

@@ -2,10 +2,9 @@
  * UIManager Module
  *
  * Manages UI components and event listeners for the application.
- * Coordinates date picker, filter panel interactions, and popup content creation.
+ * Coordinates the date picker and logo menu interactions.
  *
  * Note: Modal and toast functionality has been extracted to ModalManager and ToastNotifier modules.
- * Note: Popup content creation is delegated to PopupContentBuilder module.
  *
  * @module UIManager
  */
@@ -28,6 +27,99 @@ const UIManager = (() => {
             state.datePickerInstance = null;
         }
     }
+
+    // ========================================
+    // DATE PRESETS
+    // ========================================
+
+    function getDatePresets() {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const dayOfWeek = today.getDay();
+        let daysUntilSunday = (7 - dayOfWeek) % 7;
+        // On Saturday/Sunday, show the upcoming week instead
+        if (daysUntilSunday <= 1) daysUntilSunday += 7;
+        const nextSunday = new Date(today);
+        nextSunday.setDate(nextSunday.getDate() + daysUntilSunday);
+
+        const presets = [
+            { label: 'Today', range: [new Date(today), new Date(today)] },
+            { label: 'Tomorrow', range: [new Date(tomorrow), new Date(tomorrow)] },
+            { label: 'This Week', range: [new Date(today), new Date(nextSunday)] },
+        ];
+
+        return presets;
+    }
+
+    function getPresetLabel(selectedDates) {
+        if (selectedDates.length !== 2) return null;
+        const presets = getDatePresets();
+        const start = new Date(selectedDates[0]);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(selectedDates[1]);
+        end.setHours(0, 0, 0, 0);
+
+        for (const preset of presets) {
+            if (start.getTime() === preset.range[0].getTime() &&
+                end.getTime() === preset.range[1].getTime()) {
+                return preset.label;
+            }
+        }
+        return null;
+    }
+
+    function updateDatePickerDisplay(instance, elements) {
+        const label = getPresetLabel(instance.selectedDates);
+        if (label) {
+            instance.input.value = label;
+        }
+        resizeDatePickerInput(instance, elements);
+
+        // Update preset button active states
+        const calendar = instance.calendarContainer;
+        if (calendar) {
+            const buttons = calendar.querySelectorAll('.flatpickr-preset-btn');
+            buttons.forEach(btn => {
+                btn.classList.toggle('active', btn.textContent === label);
+            });
+        }
+    }
+
+    function injectDatePresets(instance, elements) {
+        const presets = getDatePresets();
+        const container = document.createElement('div');
+        container.className = 'flatpickr-presets';
+
+        const minDate = instance.config.minDate;
+        const maxDate = instance.config.maxDate;
+
+        presets.forEach(preset => {
+            if ((minDate && preset.range[0] < minDate) || (maxDate && preset.range[1] > maxDate)) return;
+
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'flatpickr-preset-btn';
+            btn.textContent = preset.label;
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                instance.setDate(preset.range, true);
+                instance.close();
+            });
+            container.appendChild(btn);
+        });
+
+        const calendar = instance.calendarContainer;
+        calendar.insertBefore(container, calendar.firstChild);
+    }
+
+    // ========================================
+    // DATE PICKER INIT
+    // ========================================
 
     /**
      * Initializes the date picker with Flatpickr
@@ -61,8 +153,17 @@ const UIManager = (() => {
         if (!urlDatesStale && urlParams.end instanceof Date) {
             finalDefaultEndDate = urlParams.end;
         } else {
-            const defaultEndDate = new Date(today.getTime() + (6 * Constants.TIME.ONE_DAY_MS));
-            finalDefaultEndDate = defaultEndDate > config.END_DATE ? config.END_DATE : defaultEndDate;
+            // Open on a window, not on a single day. fomo.nyc defaults to
+            // today-only; a city guide is browsed by "what's on this month",
+            // and with today-only the map opens empty for most visits.
+            // DEFAULT_WINDOW_DAYS counts calendar days *including* today, so
+            // the offset from the start of today is one less.
+            const windowDays = Number(config.DEFAULT_WINDOW_DAYS) || 1;
+            finalDefaultEndDate = new Date(
+                initialStartDate.getTime() + (windowDays - 1) * Constants.TIME.ONE_DAY_MS
+            );
+            if (finalDefaultEndDate > config.END_DATE) finalDefaultEndDate = config.END_DATE;
+            if (finalDefaultEndDate < initialStartDate) finalDefaultEndDate = new Date(initialStartDate.getTime());
         }
 
         state.datePickerInstance = flatpickr(elements.datePicker, {
@@ -72,12 +173,37 @@ const UIManager = (() => {
             minDate: config.START_DATE,
             maxDate: config.END_DATE,
             monthSelectorType: "static",
-            onReady: (selectedDates, dateStr, instance) => resizeDatePickerInput(instance, elements),
-            onClose: (selectedDates, dateStr, instance) => {
-                if (selectedDates.length === 2) {
-                    callbacks.onDatePickerClose(selectedDates);
+            onReady: (selectedDates, dateStr, instance) => {
+                injectDatePresets(instance, elements);
+                updateDatePickerDisplay(instance, elements);
+            },
+            onChange: (selectedDates, dateStr, instance) => {
+                if (selectedDates.length >= 1) {
+                    updateDatePickerDisplay(instance, elements);
+                    // Filter immediately on each click rather than waiting for
+                    // the picker to close. A lone start date acts as a
+                    // single-day range (start, start). We intentionally do NOT
+                    // setDate here so flatpickr stays in "selecting end" mode
+                    // and the next click extends the range.
+                    const dates = selectedDates.length === 1
+                        ? [selectedDates[0], selectedDates[0]]
+                        : selectedDates;
+                    callbacks.onDatePickerClose(dates);
                 }
-                resizeDatePickerInput(instance, elements);
+            },
+            onClose: (selectedDates, dateStr, instance) => {
+                let dates = selectedDates;
+                // If only a start date was picked, treat it as a single-day
+                // range (start, start) so the picker doubles as a single-date
+                // picker. Flatpickr otherwise discards a lone date on close.
+                if (dates.length === 1) {
+                    dates = [dates[0], dates[0]];
+                    instance.setDate(dates, false);
+                }
+                if (dates.length === 2) {
+                    callbacks.onDatePickerClose(dates);
+                }
+                updateDatePickerDisplay(instance, elements);
             }
         });
 
@@ -85,6 +211,13 @@ const UIManager = (() => {
         if (initialSelectedDates.length === 2) {
             callbacks.onDatePickerClose(initialSelectedDates);
         }
+
+        // Re-measure after fonts load (initial sizing may use fallback font metrics)
+        document.fonts.ready.then(() => {
+            if (state.datePickerInstance) {
+                resizeDatePickerInput(state.datePickerInstance, elements);
+            }
+        });
     }
 
     /**
@@ -97,7 +230,7 @@ const UIManager = (() => {
         const sizer = elements.datePickerSizer;
         if (!sizer || !input) return;
         sizer.textContent = input.value || input.placeholder;
-        input.style.width = `${sizer.offsetWidth + 5}px`;
+        input.style.width = `${sizer.offsetWidth + 2}px`;
     }
 
     // ========================================
@@ -158,34 +291,7 @@ const UIManager = (() => {
                 logoContainer.setAttribute('aria-expanded', 'false');
             });
         }
-    }
 
-    // ========================================
-    // POPUP CONTENT CREATION (delegated to PopupContentBuilder)
-    // ========================================
-
-    /**
-     * Creates popup content for a location marker
-     * Delegates to PopupContentBuilder for actual content creation
-     * @param {Object} locationInfo - Location information
-     * @param {Array} eventsAtLocation - Events at this location
-     * @param {Object} activeFilters - Active filter states
-     * @param {Set} geotagsSet - Set of geotags
-     * @param {Object} filterFunctions - Filter function callbacks
-     * @param {string|null} forceDisplayEventId - Event ID to force display
-     * @param {Date|null} selectedStartDate - Currently selected start date
-     * @returns {HTMLElement} Popup content container
-     */
-    function createLocationPopupContent(locationInfo, eventsAtLocation, activeFilters, geotagsSet, filterFunctions, forceDisplayEventId = null, selectedStartDate = null) {
-        return PopupContentBuilder.createLocationPopupContent(
-            locationInfo,
-            eventsAtLocation,
-            activeFilters,
-            geotagsSet,
-            filterFunctions,
-            forceDisplayEventId,
-            selectedStartDate
-        );
     }
 
     // ========================================
@@ -194,17 +300,9 @@ const UIManager = (() => {
 
     return {
         // Date picker
-        destroyDatePicker,
         initDatePicker,
-        resizeDatePickerInput,
 
         // Event listeners
-        initLogoMenu,
-
-        // Popup content (delegated to PopupContentBuilder)
-        createLocationPopupContent,
-        createPopupHeader: PopupContentBuilder.createPopupHeader,
-        createEventsList: PopupContentBuilder.createEventsList,
-        createEventDetail: PopupContentBuilder.createEventDetail
+        initLogoMenu
     };
 })();

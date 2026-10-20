@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacidad — Fomoccs</title>
+    <link rel="icon" href="images/beer.svg" type="image/svg+xml">
+    <style>
+        @font-face {
+            font-family: InterVariable;
+            font-style: normal;
+            font-weight: 100 900;
+            font-display: swap;
+            src: url('fonts/inter/InterVariable.woff2') format('woff2');
+        }
+
+        :root {
+            font-family: InterVariable, Inter, sans-serif;
+            font-feature-settings: 'liga' 1, 'calt' 1;
+            color-scheme: dark;
+            --primary-bg: #111;
+            --primary-text: #eee;
+            --secondary-text: #bfbfbf;
+            --accent-color: #74b3a5;
+            --accent-hover: #bcf4e8;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                color-scheme: light;
+                --primary-bg: #ebe7df;
+                --primary-text: #222;
+                --secondary-text: #555;
+            }
+        }
+
+        body {
+            background: var(--primary-bg);
+            color: var(--primary-text);
+            margin: 0 auto;
+            padding: 2rem 1.25rem 4rem;
+            max-width: 44rem;
+            line-height: 1.65;
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            margin-bottom: 0.25rem;
+        }
+
+        h2 {
+            font-size: 1.1rem;
+            margin-top: 2.25rem;
+            color: var(--accent-color);
+        }
+
+        a { color: var(--accent-color); }
+        a:hover { color: var(--accent-hover); }
+
+        .updated {
+            color: var(--secondary-text);
+            font-size: 0.85rem;
+            margin-top: 0;
+        }
+
+        ul { padding-left: 1.2rem; }
+        li { margin: 0.4rem 0; }
+
+        footer {
+            margin-top: 3rem;
+            padding-top: 1rem;
+            border-top: 1px solid #333;
+            color: var(--secondary-text);
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <h1>Privacidad</h1>
+    <p class="updated">Última actualización: 20 de octubre de 2026</p>
+
+    <p>
+        Fomoccs es un mapa de eventos gratuito y sin publicidad. No vendemos,
+        no rastreamos y no usamos cookies de seguimiento. Esta página explica
+        qué datos se manejan y por qué.
+    </p>
+
+    <h2>Qué guardamos</h2>
+    <ul>
+        <li>
+            <strong>Preferencias locales.</strong> El tema (claro u oscuro) y la
+            ventana de fechas que elegiste se guardan en el
+            <em>localStorage</em> de tu navegador. No salen de tu dispositivo y
+            puedes borrarlos desde el navegador en cualquier momento.
+        </li>
+        <li>
+            <strong>Comentarios enviados.</strong> Si usas el formulario de
+            comentarios, el texto que escribas se envía a nuestro servidor y
+            queda almacenado para que podamos leerlo y corregir errores.
+        </li>
+    </ul>
+
+    <h2>Qué no hacemos</h2>
+    <ul>
+        <li>No hay cookies publicitarias ni de seguimiento.</li>
+        <li>No hay Google Analytics ni ningún otro rastreador.</li>
+        <li>No hay accounts de usuario ni inicio de sesión.</li>
+        <li>No vendemos ni compartimos datos con terceros con fines comerciales.</li>
+    </ul>
+
+    <h2>Tu ubicación</h2>
+    <p>
+        El botón «Centrar el mapa en mi ubicación» usa la API de
+        geolocalización del navegador para mover el mapa. Las coordenadas se
+        procesan en tu dispositivo y <strong>nunca se envían a nuestros
+        servidores</strong>. El permiso se concede y se revoca desde el
+        navegador, no desde este sitio.
+    </p>
+
+    <h2>Los datos de los eventos</h2>
+    <p>
+        Los eventos que mostramos son públicos: provienen de sitios abiertos
+        (municipios, teatros, promotoras, plataformas de entradas) y están
+        publicados en formato JSON abierto bajo este mismo proyecto. Cada
+        evento enlaza a su fuente original, que es donde tienes la información
+        completa —incluidos, en muchos casos, los datos del organizador.
+    </p>
+
+    <h2>Terceros</h2>
+    <p>
+        El mapa usa los mosaicos de
+        <a href="https://protomaps.com" rel="noopener">Protomaps</a>, con datos
+        de <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap</a>.
+        Tu navegador contactará esos servidores al cargar el mapa, por lo que
+       ellos reciben tu dirección IP como cualquier sitio web. Las tipografías
+       se sirven desde este mismo dominio.
+    </p>
+
+    <h2>Contacto</h2>
+    <p>
+        ¿Alguna duda? Usa el formulario de comentarios del menú principal o
+        escríbenos por <a href="https://github.com/andreslossada/fomoccs" rel="noopener">GitHub</a>.
+    </p>
+
+    <footer>
+        <p>Fomoccs · Código abierto bajo licencia AGPL-3.0.</p>
+    </footer>
+</body>
+</html>

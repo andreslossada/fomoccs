@@ -1,116 +1,73 @@
 # CSS files
 
-## 📁 File Organization
+## File organization
 
 ```
 css/
-├── index.css           # Main entry point - imports all modules
-├── variables.css       # CSS custom properties and theming
-├── fonts.css          # Font declarations and typography
-├── layout.css         # Base layout and structure
-├── filter-panel.css   # Filter panel and search controls
-├── tags.css           # Tag button styles
-├── map.css            # Map, markers, and Leaflet controls
-├── popups.css         # Leaflet popup styling
-└── modals.css         # Modals and toast notifications
+├── index.css               # Entry point — @imports everything below
+├── variables.css           # Design tokens: colour, radii, shadows, spacing
+├── fonts.css               # Self-hosted Inter + the font stack
+├── layout.css              # Page shell, map container, app chrome
+├── filter-panel.css        # Left sidebar: search, date picker, selector row
+├── tags.css                # Tag chips and their states
+├── sheet.css               # Event list sheet (left slide-in / bottom sheet)
+├── map.css                 # MapLibre container, markers, controls
+├── popups.css              # Marker popups and event cards
+├── modals.css              # Dialogs, settings, toasts
+├── interests.css           # Favourite chips
+└── structured-search.css   # Structured search dialog
 ```
 
-## 📦 Module Overview
+`build.js` bundles the whole chain with esbuild (which resolves `@import`
+natively) and emits one hashed `app.<hash>.css`. `index.html` references only
+the bundle, never the individual files.
 
-### [index.css](./index.css)
-The main CSS entry point that imports all other modules in the correct order. This is the only file referenced by the HTML.
+Two import groups exist for a reason: the first three files are foundation
+(tokens → fonts → layout) and every component file after them can be reordered
+or dropped without a cascade breaking.
 
-**Import Order:**
-1. Variables (theme colors and tokens)
-2. Fonts (typography setup)
-3. Layout (base structure)
-4. Components (individual UI components)
+## Foundation
 
-### [variables.css](./variables.css)
-Centralized theme configuration using CSS custom properties.
+### `variables.css`
+The whole design system as custom properties on `:root`, with light-theme
+overrides under `[data-theme="light"]`. Components never hard-code a colour;
+they read a token. Anything shared between components lives here — the radius
+scale (`--radius-pill`, `--radius-card`, `--radius-round`, …) in particular, so
+a change of corner radius is one edit rather than a search across the codebase.
 
-- Color palette (backgrounds, text, accents, borders)
-- Shadow definitions
-- Tag and popup color schemes
-- Light theme overrides via `[data-theme="light"]`
+### `fonts.css`
+Declares the self-hosted Inter variable font from `../fonts/inter/`. Self-
+hosting removes a third-party origin (DNS plus TLS handshake) from the critical
+path; the build rewrites `../fonts/` to `fonts/` because the bundle sits at the
+root of `dist/` rather than under `css/`.
 
-### [fonts.css](./fonts.css)
-Font loading and typography configuration.
+### `layout.css`
+The page shell: `#app-container`, the map container, and the stacking context
+that lets the filter panel overlay the map on desktop and share a row with it
+on mobile.
 
-- `@font-face` declarations (Noto Color Emoji)
-- Font family setup (Inter/InterVariable)
-- Variable font support detection
-- Emoji font handling for debug mode
+## Components
 
-### [layout.css](./layout.css)
-Core application structure and positioning.
+Each component file is self-contained and carries its own responsive rules, so a
+component can be read, changed or removed without reading the others.
 
-- Body and base element styles
-- Focus indicators for accessibility
-- App container and map container layout
-- Results container and tab navigation
-- Loading states and animations
-- (Mobile) app and map container positioning
-- (Mobile) Toggle button for tags
+- **`filter-panel.css`** — the sidebar, search input, flatpickr integration, and
+  the `.selector-controls` row that holds the format and tag popover triggers.
+- **`sheet.css`** — one component, two presentations: a left slide-in on
+  desktop (with the floating `#sheet-handle` reopen affordance) and a bottom
+  sheet with a drag grip on mobile.
+- **`map.css`** — MapLibre container, marker layers, zoom/attribution controls.
+- **`popups.css`** — marker popup chrome and the event cards inside the sheet.
+- **`modals.css`** — dialog, settings, toast.
+- **`tags.css`** — tag chip appearance and selected/excluded states.
+- **`interests.css` / `structured-search.css`** — styles for the favourites
+  chips and the structured-search dialog.
 
-### [filter-panel.css](./filter-panel.css)
-Left sidebar filter panel and all its controls.
+## Conventions
 
-- Filter panel layout and positioning
-- Logo and menu dropdown
-- Search inputs (date picker, omni-search)
-- Filter groups and tags wrapper
-- Flatpickr calendar styling
-- Search results sections
-
-**Mobile Overrides:**
-- Full-width panel with max-height
-- Collapsible tags behavior
-- Inline heading icons
-- Touch-friendly controls
-
-### [tags.css](./tags.css)
-Tag button component in all its states.
-
-- Base tag button styles
-- State classes (unselected, selected, required, forbidden)
-- Non-visible result styling
-- Section control buttons
-- Result type labels
-
-### [map.css](./map.css)
-Leaflet map, markers, and map controls.
-
-- Map container with pre-loading optimization
-- Custom marker icons and emoji positioning
-- Leaflet attribution and tooltips
-- Zoom controls
-- Hardware acceleration hints
-- (mobile) Hide zoom controls (use pinch gestures)
-
-### [popups.css](./popups.css)
-Leaflet popup styling for location markers.
-
-- Popup wrapper and content layout
-- Header with emoji and location info
-- Details/summary elements for events
-- Event list with scrolling
-- External links and close button
-- Event metadata styling
-
-**Mobile Overrides:**
-- Responsive popup sizing
-- Viewport-aware max-width
-- Adjusted padding
-
-### [modals.css](./modals.css)
-Modal dialogs, settings, and notifications.
-
-- Modal overlay and container
-- Modal header and close button
-- Settings groups and options
-- Welcome modal content
-- Toast notification system
-
-**Mobile Overrides:**
-- Toast notification sizing
+- Tokens over literals. A raw hex in a component file is a bug unless it is
+  artwork.
+- Both themes must look deliberate. A component that only works on the default
+  dark theme is unfinished.
+- Mobile rules live in the component that owns them, not in one global media
+  block, so a component can be deleted in one step.

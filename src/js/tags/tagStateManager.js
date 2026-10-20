@@ -26,8 +26,7 @@ const TagStateManager = (() => {
         UNSELECTED: 'unselected',
         SELECTED: 'selected',
         REQUIRED: 'required',
-        FORBIDDEN: 'forbidden',
-        IMPLICIT: 'implicit'  // Implicitly selected via related tags
+        FORBIDDEN: 'forbidden'
     };
 
     // ========================================
@@ -43,13 +42,12 @@ const TagStateManager = (() => {
 
         // Provider objects
         colorProvider: null,    // { getTagColor, assignColorToTag, unassignColorFromTag }
-        relatedTagsProvider: null, // { isImplicitlySelected, isIncludingRelatedTags }
 
         // Callbacks
         onFilterChangeCallback: null,
 
-        // Configuration
-        defaultMarkerColor: null
+        // Emoji lookup (tagName -> emoji)
+        tagEmojiMap: {}
     };
 
     // ========================================
@@ -68,7 +66,6 @@ const TagStateManager = (() => {
             case TAG_STATE.FORBIDDEN:
                 return TAG_STATE.UNSELECTED;
             case TAG_STATE.UNSELECTED:
-            case TAG_STATE.IMPLICIT:
                 return TAG_STATE.SELECTED;
             default:
                 return TAG_STATE.SELECTED;
@@ -83,7 +80,6 @@ const TagStateManager = (() => {
     function getRightClickNextState(currentState) {
         switch (currentState) {
             case TAG_STATE.UNSELECTED:
-            case TAG_STATE.IMPLICIT:
                 return TAG_STATE.SELECTED;
             case TAG_STATE.SELECTED:
                 return TAG_STATE.REQUIRED;
@@ -102,10 +98,10 @@ const TagStateManager = (() => {
      * @param {string} tag - Tag name
      */
     function handleColorAssignment(oldState, newState, tag) {
-        const wasUnselected = oldState === TAG_STATE.UNSELECTED || oldState === TAG_STATE.IMPLICIT;
+        const wasUnselected = oldState === TAG_STATE.UNSELECTED;
         const isNowActive = newState === TAG_STATE.SELECTED || newState === TAG_STATE.REQUIRED;
         const wasActive = oldState === TAG_STATE.SELECTED || oldState === TAG_STATE.REQUIRED || oldState === TAG_STATE.FORBIDDEN;
-        const isNowUnselected = newState === TAG_STATE.UNSELECTED || newState === TAG_STATE.IMPLICIT;
+        const isNowUnselected = newState === TAG_STATE.UNSELECTED;
 
         if (wasUnselected && isNowActive) {
             if (state.colorProvider && state.colorProvider.assignColorToTag) {
@@ -130,16 +126,16 @@ const TagStateManager = (() => {
     function updateTagVisuals(buttonElement, tagValue) {
         const tagState = state.tagStates[tagValue] || TAG_STATE.UNSELECTED;
         const tagColor = state.colorProvider && state.colorProvider.getTagColor ? state.colorProvider.getTagColor(tagValue) : null;
-        const colorToUse = tagColor || state.defaultMarkerColor;
+        const colorToUse = tagColor;
 
         buttonElement.className = 'tag-button';
+        buttonElement.style.removeProperty('--chip-color');
+        buttonElement.style.removeProperty('background');
+        buttonElement.style.removeProperty('background-color');
 
         const applyColor = () => {
-            if (Array.isArray(colorToUse)) {
-                buttonElement.style.background = `linear-gradient(to bottom, color-mix(in srgb, ${colorToUse[0]} 80%, transparent), color-mix(in srgb, ${colorToUse[1]} 80%, transparent))`;
-            } else {
-                buttonElement.style.backgroundColor = `color-mix(in srgb, ${colorToUse} 80%, transparent)`;
-            }
+            const color = Array.isArray(colorToUse) ? colorToUse[0] : colorToUse;
+            buttonElement.style.setProperty('--chip-color', color);
         };
 
         switch (tagState) {
@@ -163,12 +159,6 @@ const TagStateManager = (() => {
                 buttonElement.setAttribute('aria-label', `${tagValue}`);
                 break;
 
-            case TAG_STATE.IMPLICIT:
-                buttonElement.classList.add('state-implicit');
-                buttonElement.setAttribute('aria-pressed', 'mixed');
-                buttonElement.setAttribute('aria-label', `${tagValue} (related)`);
-                break;
-
             case TAG_STATE.UNSELECTED:
             default:
                 buttonElement.classList.add('state-unselected');
@@ -177,7 +167,8 @@ const TagStateManager = (() => {
                 break;
         }
 
-        buttonElement.textContent = tagValue;
+        buttonElement.textContent = '';
+        Utils.appendChipContent(buttonElement, state.tagEmojiMap[tagValue], tagValue);
     }
 
     // ========================================
@@ -237,12 +228,9 @@ const TagStateManager = (() => {
      * @param {string} tag - Tag name
      * @returns {HTMLElement} Tag button element
      */
-    function createTagElement(tag) {
+    function createInteractiveTagButton(tag) {
         return createTagButtonWithHandlers(tag, notifyFilterChange, notifyFilterChange);
     }
-
-    // Alias for backwards compatibility
-    const createInteractiveTagButton = createTagElement;
 
     /**
      * Creates a button for a search result (location, event, or tag)
@@ -258,9 +246,13 @@ const TagStateManager = (() => {
      * @returns {HTMLElement} Button element
      */
     function createSearchResultButton(result, onSearchResultClick, debugMode = false) {
-        // For tags, create the interactive button
-        if (result.type === 'tag') {
-            const button = createInteractiveTagButton(result.ref);
+        // Tags and organizers both render as interactive filter chips. Organizers
+        // are toggled via their pseudo-tag, so they filter exactly like a tag.
+        if (result.type === 'tag' || result.type === 'organizer') {
+            const tagKey = result.type === 'organizer'
+                ? Utils.makeOrganizerTag(result.ref)
+                : result.ref;
+            const button = createInteractiveTagButton(tagKey);
             if (result.isVisible === false) {
                 button.classList.add('non-visible-tag');
             }
@@ -293,10 +285,10 @@ const TagStateManager = (() => {
         button.dataset.resultRef = result.ref;
         button.setAttribute('role', 'listitem');
 
-        const emoji = result.emoji ? `<span class="popup-event-emoji" aria-hidden="true">${result.emoji}</span>` : '';
         const displayName = result.displayName || result.ref;
         const scoreText = (debugMode && result.score !== undefined) ? ` <span class="debug-score" style="opacity: 0.6; font-size: 0.85em;">[${result.score.toFixed(1)}]</span>` : '';
-        button.innerHTML = `${emoji} ${displayName.replace(/<\/?strong>/g, '')}${scoreText}`;
+        button.innerHTML = `${displayName.replace(/<\/?strong>/g, '')}${scoreText}`;
+        button.prepend(IconManager.createElement(result, { className: 'chip-emoji event-icon' }));
         button.setAttribute('aria-label', `${result.type}: ${displayName.replace(/<\/?[^>]+(>|$)/g, '')}`);
 
         button.addEventListener('click', () => {
@@ -341,16 +333,6 @@ const TagStateManager = (() => {
     }
 
     /**
-     * Selects multiple tags (sets them to SELECTED state)
-     * @param {Array<string>} tags - Tags to select
-     */
-    function selectTags(tags) {
-        tags.forEach(tag => {
-            setTagState(tag, TAG_STATE.SELECTED);
-        });
-    }
-
-    /**
      * Updates all tag button visuals
      * Used when colors are reassigned (e.g., theme change)
      */
@@ -376,18 +358,13 @@ const TagStateManager = (() => {
      * @param {Function} config.colorProvider.getTagColor - Get tag color
      * @param {Function} config.colorProvider.assignColorToTag - Assign color to tag
      * @param {Function} config.colorProvider.unassignColorFromTag - Unassign color from tag
-     * @param {Object} [config.relatedTagsProvider] - Provider for related tags operations
-     * @param {Function} [config.relatedTagsProvider.isImplicitlySelected] - Check if tag is implicitly selected
-     * @param {Function} [config.relatedTagsProvider.isIncludingRelatedTags] - Check if related tags are included
      * @param {Function} config.onFilterChangeCallback - Callback when filters change
-     * @param {string} config.defaultMarkerColor - Default marker color
      */
     function init(config) {
         state.tagStates = config.tagStates;
         state.colorProvider = config.colorProvider || null;
-        state.relatedTagsProvider = config.relatedTagsProvider || null;
         state.onFilterChangeCallback = config.onFilterChangeCallback;
-        state.defaultMarkerColor = config.defaultMarkerColor;
+        state.tagEmojiMap = config.tagEmojiMap || {};
     }
 
     /**
@@ -407,7 +384,6 @@ const TagStateManager = (() => {
         init,
 
         // Button creation
-        createTagElement,
         createInteractiveTagButton,
         createSearchResultButton,
 
@@ -415,8 +391,8 @@ const TagStateManager = (() => {
         setTagState,
         getTagState,
         getTagStates,
-        selectTags,
         updateAllTagVisuals,
+        updateTagVisuals,
 
         // Constants
         getTagStateConstants
