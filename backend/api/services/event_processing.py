@@ -20,7 +20,7 @@ from sqlalchemy.orm import selectinload
 from api.models.base import TagRuleType
 from api.models.location import Location
 from api.models.tag import TagRule
-from api.tasks.geocoding import geocode_location
+from api.services.known_venues import lookup_known_venue
 
 logger = logging.getLogger(__name__)
 
@@ -352,6 +352,23 @@ async def resolve_location(
 
     full_loc = f"{normalized_loc} {normalized_sub}".strip()
 
+    # Step 0a: curated coordinates. If we already know where this venue is,
+    # skip the fuzzy scan entirely. Also checks the DB for an existing row
+    # under this name so repeated events merge onto one Location.
+    known = lookup_known_venue(location_name)
+    if known is not None:
+        existing = await db.scalar(
+            select(Location).where(Location.name == location_name)
+        )
+        if existing is not None:
+            # Backfill coords on the existing row if they're missing.
+            if existing.lat is None or existing.lng is None:
+                existing.lat = known.lat
+                existing.lng = known.lng
+                existing.address = existing.address or known.address
+                await db.flush()
+            return existing
+
     # Step 0 (fast dedup path): DB-level exact match on normalized name with
     # optional address tiebreaker. Catches the common case where two extractions
     # produce the same location string without loading all rows into memory.
@@ -376,6 +393,29 @@ async def resolve_location(
 
     search_keys = [k for k in (normalized_loc, full_loc) if k]
 
+    # Precompute normalized candidates once per call. ``_normalize_location_name``
+    # runs a regex per string, and step 3 compares every candidate against every
+    # search key — without this cache a single job re-normalized all locations
+    # once per extracted event, which dominated processing time on large
+    # backlogs.
+    normalized_candidates: list[tuple[Location, tuple[str, ...]]] = [
+        (
+            loc,
+            tuple(
+                c
+                for c in (
+                    _normalize_location_name(loc.name),
+                    *(
+                        _normalize_location_name(alt.alternate_name)
+                        for alt in loc.alternate_names
+                    ),
+                )
+                if c
+            ),
+        )
+        for loc in locations
+    ]
+
     # Step 1: exact match on normalized Location.name
     for loc in locations:
         if _normalize_location_name(loc.name) in search_keys:
@@ -390,16 +430,9 @@ async def resolve_location(
     # Step 3: fuzzy match via SequenceMatcher ratio >= threshold
     best_loc: Location | None = None
     best_score = 0.0
-    for loc in locations:
-        candidates = [_normalize_location_name(loc.name)] + [
-            _normalize_location_name(alt.alternate_name) for alt in loc.alternate_names
-        ]
+    for loc, candidates in normalized_candidates:
         for candidate in candidates:
-            if not candidate:
-                continue
             for key in search_keys:
-                if not key:
-                    continue
                 score = SequenceMatcher(None, candidate, key).ratio()
                 if score >= _FUZZY_THRESHOLD and score > best_score:
                     best_loc = loc
@@ -417,7 +450,31 @@ async def resolve_location(
                 if _normalize_location_name(alt.alternate_name) in fallback_keys:
                     return loc
 
-    # No match — create a new Location and enqueue geocoding.
+    # No match — create a new Location and enqueue geocoding. Before that,
+    # check ``known_venues`` to pin curated coordinates for venues whose
+    # external geocoding is known to fail (Teatro Teresa Carreño, CCAM,
+    # universities, etc.). Without this fallback, those venues stay
+    # NULL-coordinated and events never appear on the map.
+    known = lookup_known_venue(location_name)
+    if known is not None:
+        new_loc = Location(
+            name=location_name,
+            address=sublocation or known.address,
+            lat=known.lat,
+            lng=known.lng,
+            emoji=_DEFAULT_LOCATION_EMOJI,
+        )
+        db.add(new_loc)
+        await db.flush()
+        logger.info(
+            "Pinned new location %d (%s) to curated coords (%s, %s)",
+            new_loc.id,
+            location_name,
+            known.lat,
+            known.lng,
+        )
+        return new_loc
+
     new_loc = Location(
         name=location_name,
         address=sublocation or None,
@@ -426,6 +483,11 @@ async def resolve_location(
     db.add(new_loc)
     await db.flush()
     try:
+        # Imported lazily: api.tasks.processing imports this module, so a
+        # module-level import of api.tasks.geocoding (which api.tasks'
+        # __init__ pulls in) would be a circular import.
+        from api.tasks.geocoding import geocode_location
+
         geocode_location.delay(new_loc.id)
     except Exception as exc:
         # If Celery/Redis is unavailable (e.g. broker not deployed in dev),
