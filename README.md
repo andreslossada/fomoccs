@@ -80,8 +80,30 @@ python main.py --ids 123       # Crawl specific source
 # Frontend
 npm install && npm run build   # Build to dist/
 npm run dev                    # Dev server
+npm test                       # Headless smoke test in Chromium
+python scripts/build_tag_hierarchy.py   # Regenerate src/data/tag_hierarchy.json
 
 # Infrastructure
 cd infrastructure
 terraform init && terraform plan
 ```
+
+## Frontend configuration
+
+Two generated inputs control what ships, and both are worth knowing about
+before debugging an empty map:
+
+- **`config/<city>.yaml`** — the single source of truth for the built site:
+  site name, timezone, map centre, selector roots. `build.js` injects it as
+  `window.__CITY__` and substitutes the `{{TOKEN}}` placeholders in
+  `index.html`. The build fails on an unreplaced token, so a missing config
+  value fails the build rather than shipping.
+- **`src/data/tag_hierarchy.json`** — the curated tag taxonomy, **generated**
+  from the tags actually in the database by `scripts/build_tag_hierarchy.py`.
+  The LLM extractor writes a tag per event, so the raw table is full of
+  compounds and spelling variants; the generator maps them onto a small
+  browsable vocabulary and leaves everything unmatched as searchable keywords.
+  Re-run it after the pipeline learns new tags.
+
+Both the tag and format popovers read from that hierarchy. Empty popovers
+almost always mean the hierarchy is stale, not that the UI is broken.

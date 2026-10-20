@@ -39,11 +39,27 @@ Terraform manages:
 `.github/workflows/ci-cd.yml`:
 
 1. **On push to any branch:** change detection via `dorny/paths-filter`
-2. **Parallel test jobs:** backend (ruff + mypy + pytest), pipeline (pytest), frontend (build check)
+2. **Parallel test jobs:** backend (ruff + mypy + pytest), pipeline (pytest), frontend (build check + headless smoke test in Chromium)
 3. **On push to main:** conditional deploy
    - Backend: `docker build && push` → `gcloud run deploy`
    - Pipeline: `docker build && push` → `gcloud run jobs update`
    - Frontend: `npm run build` → `gsutil rsync` to GCS
+
+### Frontend cache headers
+
+`deploy-frontend.sh` sets GCS cache headers by extension, and the build is
+built around them:
+
+| Pattern | Cache-Control | Why it is safe |
+|---|---|---|
+| `*.html` | `no-cache` | Always revalidates, so a deploy is picked up immediately. |
+| `*.js`, `*.css` | `public, max-age=31536000, immutable` | Safe **only** because the JS and CSS bundles are content-hashed. |
+| `vendor/maplibre-gl-*.js` | `immutable` | Carries the version in its **filename**, because GCS keys objects by path and ignores query strings — a `?v=5.24.0` suffix would not bust the cache. |
+
+There is no service worker, so nothing needs a cache-invalidation strategy of
+its own. `config/<city>.yaml` sets `sw_enabled: false`; the data layer reads a
+live, rate-limited API, so an offline cache would serve stale events with no
+honest way to tell the user.
 
 ## Manual deployment
 
