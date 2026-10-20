@@ -4,31 +4,59 @@ Only inserts entries that don't already exist in the DB.
 """
 import os
 import sys
+from pathlib import Path
 
 import psycopg2
 from psycopg2.extras import execute_values
+from dotenv import load_dotenv
+
+# Load .env files so DB_* and PROD_DB_* are populated. Local ``backend/.env``
+# wins (matches what the running services use).
+for env_path in (
+    Path(__file__).resolve().parent.parent / ".env",
+    Path(__file__).resolve().parent.parent / "backend" / ".env",
+    Path(__file__).resolve().parent.parent / "pipeline" / ".env",
+):
+    if env_path.is_file():
+        load_dotenv(env_path, override=False)
 
 
 def _get_db_config():
-    """Build DB config from environment variables."""
+    """Build DB config from environment variables.
+
+    Prefers ``DATABASE_URL`` if set; otherwise reads ``PROD_DB_*`` (legacy).
+    Falls back to standard ``DB_HOST``/``DB_NAME``/``DB_USER``/``DB_PASS``
+    vars used by ``backend/.env`` and ``pipeline/.env`` so the script works
+    against the local/staging DB without any extra setup.
+    """
     db_url = os.getenv("DATABASE_URL")
     if db_url:
         return db_url
 
-    required = ["PROD_DB_HOST", "PROD_DB_NAME", "PROD_DB_USER", "PROD_DB_PASS"]
+    if all(os.getenv(v) for v in ("PROD_DB_HOST", "PROD_DB_NAME", "PROD_DB_USER", "PROD_DB_PASS")):
+        return {
+            "host": os.getenv("PROD_DB_HOST"),
+            "port": int(os.getenv("PROD_DB_PORT", "5432")),
+            "dbname": os.getenv("PROD_DB_NAME"),
+            "user": os.getenv("PROD_DB_USER"),
+            "password": os.getenv("PROD_DB_PASS"),
+            "sslmode": "require",
+        }
+
+    required = ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASS"]
     missing = [v for v in required if not os.getenv(v)]
     if missing:
         print(f"Missing environment variables: {', '.join(missing)}")
-        print("Set DATABASE_URL or PROD_DB_* variables.")
+        print("Set DATABASE_URL, PROD_DB_*, or DB_* variables (e.g. via .env).")
         sys.exit(1)
 
     return {
-        "host": os.getenv("PROD_DB_HOST"),
-        "port": int(os.getenv("PROD_DB_PORT", "5432")),
-        "dbname": os.getenv("PROD_DB_NAME"),
-        "user": os.getenv("PROD_DB_USER"),
-        "password": os.getenv("PROD_DB_PASS"),
-        "sslmode": "require",
+        "host": os.getenv("DB_HOST"),
+        "port": int(os.getenv("DB_PORT", "5432")),
+        "dbname": os.getenv("DB_NAME"),
+        "user": os.getenv("DB_USER"),
+        "password": os.getenv("DB_PASS"),
+        "sslmode": os.getenv("DB_SSLMODE", "require"),
     }
 
 # =============================================================================
@@ -188,6 +216,19 @@ def main():
         cur.execute(
             "INSERT INTO source_urls (source_id, url, sort_order) VALUES (%s, %s, 0)",
             (source_id, url),
+        )
+        # Tier-based cadence (minutes):
+        # T1 = 6h (every 6h); T2 = 12h; T3 = 24h. Converted to MINUTES for
+        # ``crawl_frequency`` so the existing cadence math (days-since
+        # last_crawled_at) still works. The cadence math in pipeline/db.py
+        # uses EXTRACT(DAY FROM ...) so the effective gate is "1 day" — to
+        # force a tier1 crawl every 6h, override the cadence in scheduler.
+        # We insert with safe defaults to avoid immediate re-crawl spam.
+        default_frequency_days = {1: 1, 2: 1, 3: 7}.get(tier, 7)
+        cur.execute(
+            "INSERT INTO crawl_configs (source_id, crawl_frequency, crawl_mode) "
+            "VALUES (%s, %s, 'browser')",
+            (source_id, default_frequency_days),
         )
         sources_inserted += 1
         urls_inserted += 1
