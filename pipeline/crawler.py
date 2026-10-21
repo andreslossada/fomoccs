@@ -8,6 +8,7 @@ import asyncio
 import json
 import re
 import sys
+import threading
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -1226,6 +1227,28 @@ async def crawl_source(
     return crawl_result_id
 
 
+_BROWSER_PORT_LOCK = threading.Lock()
+_BROWSER_PORT_NEXT = 9222
+_BROWSER_PORT_MAX = 9400
+
+
+def _next_debugging_port() -> int:
+    """Hand out a unique debugging port per browser instance.
+
+    Crawl4AI defaults every browser to the same debugging port (9222).
+    With more than one worker running, the second browser fails to bind and
+    Chromium dies with "Connection closed while reading from the driver",
+    taking the whole crawl with it. Each browser gets its own port.
+    """
+    global _BROWSER_PORT_NEXT
+    with _BROWSER_PORT_LOCK:
+        port = _BROWSER_PORT_NEXT
+        _BROWSER_PORT_NEXT += 1
+        if _BROWSER_PORT_NEXT > _BROWSER_PORT_MAX:
+            _BROWSER_PORT_NEXT = 9222
+    return port
+
+
 def get_browser_config(
     javascript_enabled: bool = True,
     text_mode: bool = True,
@@ -1246,6 +1269,7 @@ def get_browser_config(
     Note: These are browser-level settings. All sources crawled with this
           config will share the same settings.
     """
+    debugging_port = _next_debugging_port()
     if use_stealth:
         # Use undetected browser mode with stealth features for bot detection bypass
         return BrowserConfig(
@@ -1255,6 +1279,7 @@ def get_browser_config(
             light_mode=light_mode,
             use_managed_browser=True,
             enable_stealth=True,
+            debugging_port=debugging_port,
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             extra_args=["--disable-blink-features=AutomationControlled"],
         )
@@ -1265,4 +1290,5 @@ def get_browser_config(
             java_script_enabled=javascript_enabled,
             text_mode=text_mode,
             light_mode=light_mode,
+            debugging_port=debugging_port,
         )

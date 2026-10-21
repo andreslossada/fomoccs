@@ -32,6 +32,37 @@ from crawl4ai import AsyncWebCrawler
 from extractor import TokenTracker
 
 
+async def _launch_browser(config) -> AsyncWebCrawler:
+    """Start a browser, retrying once if Chromium fails to come up.
+
+    Chromium occasionally dies on startup — usually because an orphaned
+    browser from a previous run is still holding the debugging port. One
+    retry with a fresh port recovers most of those.
+    """
+    last_error: Exception | None = None
+    for attempt in range(2):
+        browser = AsyncWebCrawler(config=config)
+        try:
+            await browser.__aenter__()
+            return browser
+        except Exception as exc:  # noqa: BLE001 - retried below
+            last_error = exc
+            print(
+                f"    - Browser launch failed (attempt {attempt + 1}/2): {exc}"
+            )
+            try:
+                await browser.__aexit__(None, None, None)
+            except Exception:  # noqa: BLE001 - best-effort cleanup
+                pass
+            # A fresh port for the retry.
+            config = crawler.get_browser_config(
+                text_mode=config.text_mode,
+                light_mode=config.light_mode,
+                use_stealth=config.enable_stealth,
+            )
+    raise last_error or RuntimeError("Browser launch failed")
+
+
 async def run_pipeline(source_ids=None, limit=None, tier=None):
     """Execute the scraping and extraction pipeline.
 
@@ -284,8 +315,7 @@ async def run_pipeline(source_ids=None, limit=None, tier=None):
                                     light_mode=key[1],
                                     use_stealth=key[2],
                                 )
-                                browser = AsyncWebCrawler(config=config)
-                                await browser.__aenter__()
+                                browser = await _launch_browser(config)
                                 browser_key = key
 
                             # Crawl
