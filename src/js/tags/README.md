@@ -50,6 +50,12 @@ Two rules keep the taxonomy usable:
 To add a concept, edit `ROOTS` / `CHILDREN` / `FORMATS` in the generator and
 re-run it — do not hand-edit `tag_hierarchy.json`, it is overwritten.
 
+The experience families (`Performance`, `Participatory`, …) are ids, not copy:
+`src/js/core/formatColors.js` keys its colour table on them, so renaming one
+would turn every marker in that family grey. What the user reads comes from
+`CATEGORY_LABELS` in the generator, and the interface copy in general lives in
+`config/<city>.yaml` under `frontend.labels`.
+
 Neighborhood and venue selectors are **not mounted** here: they filter on tags
 attached to locations, and `location_tags` is empty in this database, so the
 popovers would open blank. See `config/<city>.yaml`.

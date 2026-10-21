@@ -1,13 +1,10 @@
 /**
  * Smoke test for the built frontend.
  *
- * Serves a build over HTTP (the real deploy shape: a static bucket behind an
+ * Serves the build over HTTP (the real deploy shape: a static bucket behind an
  * origin) and loads it in Chromium, then asserts the app came up: no console
- * errors, no failed same-origin requests, and the map, the selectors and the
- * event sheet actually rendered.
- *
- * The feed endpoints are stubbed with a small fixture so the test is
- * deterministic and needs neither the backend nor a database.
+ * errors, no failed same-origin requests, and the map plus the two selectors
+ * actually rendered.
  *
  * Two bundles are checked:
  *   prod  dist/, the artefact that deploys. DOM-only assertions.
@@ -15,116 +12,16 @@
  *         exposes window.__fomo so the data-layer derivations can be asserted
  *         directly; production deliberately does not expose that handle.
  *
- *   npm test              # both
+ *   npm test
  *   node scripts/smoke_frontend.mjs --headed
  */
 import { chromium } from '@playwright/test';
-import { createServer } from 'node:http';
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
-import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { ROOT, argValue, buildDevBundle, serve } from './test_helpers.mjs';
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const PROD_DIST = join(ROOT, 'dist');
 const HEADED = process.argv.includes('--headed');
-
-const MIME = {
-    '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
-    '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2',
-    '.pbf': 'application/x-protobuf',
-};
-
-const TODAY = new Date();
-const iso = d => d.toISOString().slice(0, 10);
-const inDays = n => {
-    const d = new Date(TODAY);
-    d.setDate(d.getDate() + n);
-    return iso(d);
-};
-
-// Three events across two venues, so venue grouping, the recurring-event
-// merge, the tag hierarchy and the format derivation all have something to
-// chew on. Tags use the raw spellings the extractor actually produces.
-const EVENTS = [
-    {
-        id: 101, name: 'C4 Trío', short_name: null,
-        description: 'Concierto de cumbia.',
-        emoji: '🎺', location: 'Centro Cultural Chacao', place_id: 7,
-        sublocation: null, lat: 10.4946, lng: -66.9019,
-        tags: ['Concierto', 'MusicaLatina', 'Salsa', 'EnVivo'],
-        occurrences: [[inDays(2), '20:00:00', null, null], [inDays(3), '20:00:00', null, null]],
-        urls: ['https://example.org/c4-trio'],
-    },
-    {
-        id: 102, name: 'Clases de Yoga', short_name: null,
-        description: 'Taller de bienestar.',
-        emoji: '🧘', location: 'Hacienda La Trinidad Parque Cultural', place_id: 9,
-        sublocation: null, lat: 10.4416, lng: -66.8812,
-        tags: ['Taller', 'Bienestar', 'Ejercicio', 'Yoga'],
-        occurrences: [[inDays(1), '09:00:00', null, null]],
-        urls: ['https://example.org/yoga'],
-    },
-    {
-        id: 103, name: 'Festival de Cine Francés', short_name: null,
-        description: 'Ciclo de cine.',
-        emoji: '🎬', location: 'Alianza Francesa', place_id: 11,
-        sublocation: null, lat: 10.5016, lng: -66.9139,
-        tags: ['Cine', 'CineFrances', 'FestivalDeCine'],
-        occurrences: [[inDays(4), '18:30:00', null, null]],
-        urls: ['https://example.org/cine'],
-    },
-    // Dropped by the adapter: no coordinates, so it cannot be placed.
-    {
-        id: 104, name: 'Evento sin ubicación', short_name: null, description: null,
-        emoji: null, location: null, place_id: null, sublocation: null,
-        lat: null, lng: null, tags: ['Cultura'],
-        occurrences: [[inDays(5), '12:00:00', null, null]],
-        urls: ['https://example.org/x'],
-    },
-];
-
-const LOCATIONS = [
-    { id: 7, name: 'Centro Cultural Chacao', short_name: 'Chacao', very_short_name: null,
-      lat: 10.4946, lng: -66.9019, emoji: '🎭', address: null, description: null,
-      website_url: null, tags: [] },
-    { id: 9, name: 'Hacienda La Trinidad Parque Cultural', short_name: null, very_short_name: null,
-      lat: 10.4416, lng: -66.8812, emoji: '🌳', address: null, description: null,
-      website_url: null, tags: [] },
-    { id: 11, name: 'Alianza Francesa', short_name: null, very_short_name: null,
-      lat: 10.5016, lng: -66.9139, emoji: '🥖', address: null, description: null,
-      website_url: null, tags: [] },
-];
-
-async function serve(distDir) {
-    const server = createServer(async (req, res) => {
-        const url = new URL(req.url, 'http://localhost');
-        let path = join(distDir, normalize(decodeURIComponent(url.pathname)));
-
-        if (url.pathname === '/api/v1/feed/events') {
-            res.writeHead(200, { 'content-type': 'application/json' });
-            return res.end(JSON.stringify(EVENTS));
-        }
-        if (url.pathname === '/api/v1/feed/locations') {
-            res.writeHead(200, { 'content-type': 'application/json' });
-            return res.end(JSON.stringify(LOCATIONS));
-        }
-
-        try {
-            const info = await stat(path).catch(() => null);
-            if (info?.isDirectory()) path = join(path, 'index.html');
-            const body = await readFile(path);
-            res.writeHead(200, { 'content-type': MIME[extname(path)] || 'application/octet-stream' });
-            res.end(body);
-        } catch {
-            res.writeHead(404).end('not found');
-        }
-    });
-    await new Promise(resolve => server.listen(0, resolve));
-    return { server, port: server.address().port };
-}
+const PROD_DIST = join(ROOT, 'dist');
 
 /**
  * Loads one bundle, waits for the data pass to finish, opens both selectors and
@@ -212,12 +109,7 @@ async function main() {
         process.exit(1);
     }
 
-    // Dev build into a throwaway dir: identical sources, unminified, plus the
-    // window.__fomo handle the state assertions read.
-    const devDist = mkdtempSync(join(tmpdir(), 'fomoccs-smoke-'));
-    execFileSync('node', [join(ROOT, 'build.js'), '--dev'],
-        { cwd: ROOT, stdio: 'ignore', env: { ...process.env, DIST_DIR: devDist } });
-
+    const devDist = buildDevBundle(null);
     let prod, dev;
     try {
         prod = await checkBundle(PROD_DIST, 'prod', { withState: false });

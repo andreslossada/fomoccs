@@ -80,7 +80,8 @@ python main.py --ids 123       # Crawl specific source
 # Frontend
 npm install && npm run build   # Build to dist/
 npm run dev                    # Dev server
-npm test                       # Headless smoke test in Chromium
+npm test                       # Smoke test: the bundle loads, data layer works
+npm run test:ui                # Interaction test: the UI responds
 python scripts/build_tag_hierarchy.py   # Regenerate src/data/tag_hierarchy.json
 
 # Infrastructure
@@ -107,3 +108,7 @@ before debugging an empty map:
 
 Both the tag and format popovers read from that hierarchy. Empty popovers
 almost always mean the hierarchy is stale, not that the UI is broken.
+
+The interface copy lives in the same file, under `frontend.labels`. A label
+that is missing falls back to the English original baked into the module, so a
+partial labels block is safe.

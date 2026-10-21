@@ -165,6 +165,10 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Frontend smoke test
         run: npm test
+      # Drives the real UI: sheet, selectors, search, marker popup, theme,
+      # share link and the mobile layout.
+      - name: Frontend interaction test
+        run: npm run test:ui
 
   # === Deploy Backend ===
   deploy-backend:
