@@ -109,6 +109,23 @@ before debugging an empty map:
 Both the tag and format popovers read from that hierarchy. Empty popovers
 almost always mean the hierarchy is stale, not that the UI is broken.
 
+## Where the feed comes from
+
+The frontend is deployed to Vercel and reads `/api/v1/feed/events` and
+`/api/v1/feed/locations`. Those two paths are currently served by the
+functions in `api/`, which run the same queries the FastAPI feed runs
+against the same database (Supabase).
+
+That is a bridge. The API in production is a Cloud Run service that still
+points at the retired Cloud SQL instance, so it answers 503 and the map
+comes up empty. When the service is re-pointed at Supabase and redeployed,
+delete `api/`, set `API_BASE_URL` back to its URL, and nothing else has to
+change.
+
+`npm run test:feeds` compares the two implementations record by record; it
+needs a running API (`cd backend && uv run uvicorn api.main:app --port 8000`)
+and the database.
+
 The interface copy lives in the same file, under `frontend.labels`. A label
 that is missing falls back to the English original baked into the module, so a
 partial labels block is safe.

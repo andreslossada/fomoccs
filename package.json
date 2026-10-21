@@ -3,9 +3,10 @@
   "scripts": {
     "dev": "node build.js --dev --watch",
     "build": "node build.js",
-    "test": "node scripts/smoke_frontend.mjs",
+    "test": "node --test api/v1/feed/feed.test.js && node scripts/smoke_frontend.mjs",
     "test:ui": "node scripts/interaction_test.mjs",
-    "test:all": "npm test && npm run test:ui"
+    "test:all": "npm test && npm run test:ui",
+    "test:feeds": "node scripts/compare_feeds.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
