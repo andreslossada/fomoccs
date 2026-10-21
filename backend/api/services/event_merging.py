@@ -133,6 +133,17 @@ OUT_OF_CITY_VENUE_MARKERS: tuple[str, ...] = (
     "centro cultural tulio febres",
     "aula magna de barquisimeto",
     "museo de arte moderno de barquisimeto",
+    # --- Venues outside Venezuela that show up in Latin listings ---
+    "orlando florida",
+    "sheraton hotel resort",
+    "doral center mall",
+    # --- Other Venezuelan cities outside the Caracas metro area ---
+    "ciudad guayana",
+    "guayana",
+    "puerto ordaz",
+    "baralt",
+    "jorge luis garcia carneiro",
+    "circulo militar",
 )
 
 
