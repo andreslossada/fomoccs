@@ -39,10 +39,21 @@ async def _get_source_or_404(db: SessionDep, source_id: int) -> Source:
 
 
 async def _check_duplicate_urls(db: SessionDep, urls: list[str]) -> None:
-    """Raise 409 if any of the given URLs already exist in active source_urls."""
+    """Raise 409 if any of the given URLs already exist in active source_urls.
+
+    The comparison ignores a trailing slash. The schema normalizes a bare
+    host to one, so a URL that arrived as "https://example.com" is stored
+    as "https://example.com/" — but rows written before that, and rows
+    written by other paths, keep the other spelling. Comparing the two
+    forms directly would let the same site in twice.
+    """
     if not urls:
         return
-    stmt = select(SourceUrl.url).where(SourceUrl.active(), SourceUrl.url.in_(urls))
+    canonical = [url.rstrip("/") or url for url in urls]
+    stmt = select(SourceUrl.url).where(
+        SourceUrl.active(),
+        func.rtrim(SourceUrl.url, "/").in_(canonical),
+    )
     existing = (await db.execute(stmt)).scalars().all()
     if existing:
         raise HTTPException(

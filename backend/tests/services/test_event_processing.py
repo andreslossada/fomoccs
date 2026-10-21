@@ -223,8 +223,11 @@ async def test_resolve_location_dedup_misses_when_sublocation_differs(
 ) -> None:
     """Dedup fast-path misses when DB row has a different sublocation.
 
-    The function then falls through to the in-memory scan. Here no in-memory
-    match exists either, so a new Location is created.
+    The fast path matches on name and address, so a different sublocation
+    misses it. The name scan then still resolves the venue: there is one
+    row per venue, and the event carries its own sublocation. The point of
+    the test is that the fast path is skipped, not that a second row for
+    the same venue is created.
     """
     existing = Location(
         name="Sala de Exposiciones Bartolomeo de la Torre",
@@ -244,9 +247,10 @@ async def test_resolve_location_dedup_misses_when_sublocation_differs(
         )
 
     assert result is not None
-    assert result.id != existing.id
-    assert result.address == "Sala 7"
-    mock_task.delay.assert_called_once()
+    # The venue already exists, so it is reused rather than duplicated.
+    assert result.id == existing.id
+    # Nothing new to geocode.
+    mock_task.delay.assert_not_called()
 
 
 @pytest.mark.asyncio
