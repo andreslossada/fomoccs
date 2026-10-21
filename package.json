@@ -13,6 +13,7 @@
     "yaml": "^2.9.1"
   },
   "dependencies": {
-    "flatpickr": "^4.6.13"
+    "flatpickr": "^4.6.13",
+    "pg": "^8.23.1"
   }
 }

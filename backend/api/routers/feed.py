@@ -80,7 +80,9 @@ async def feed_events(
                 "sublocation": ev.sublocation,
                 "lat": loc.lat if loc else None,
                 "lng": loc.lng if loc else None,
-                "tags": [t.name for t in ev.tags],
+                # Sorted: the order must not depend on the query plan, and
+                # it has to match what the Vercel feed function returns.
+                "tags": sorted(t.name for t in ev.tags),
                 "occurrences": occurrences,
                 "urls": [u.url for u in sorted(ev.urls, key=lambda u: u.id)],
             }
