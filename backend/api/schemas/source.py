@@ -2,9 +2,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.models.base import CrawlMode, SourceType
+from api.schemas.common import HttpUrlString
 
 __all__ = [
     "SourceUrlResponse",
@@ -36,7 +37,7 @@ class SourceUrlResponse(BaseModel):
 
 
 class SourceUrlCreate(BaseModel):
-    url: Annotated[AnyHttpUrl, Field(max_length=2000)]
+    url: Annotated[HttpUrlString, Field(max_length=2000)]
     js_code: str | None = None
     sort_order: int = 0
 

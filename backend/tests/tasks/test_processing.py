@@ -132,7 +132,7 @@ class TestProcessCrawlJobHappyPath:
 
         with (
             patch("api.tasks.processing._make_session", return_value=stub),
-            patch("api.services.event_processing.geocode_location") as mock_geo,
+            patch("api.tasks.geocoding.geocode_location") as mock_geo,
             patch(
                 "api.tasks.processing.merge_extracted_events",
                 new_callable=AsyncMock,
@@ -173,7 +173,7 @@ class TestProcessCrawlJobHappyPath:
 
         with (
             patch("api.tasks.processing._make_session", return_value=stub),
-            patch("api.services.event_processing.geocode_location") as mock_geo,
+            patch("api.tasks.geocoding.geocode_location") as mock_geo,
             patch(
                 "api.tasks.processing.merge_extracted_events",
                 new_callable=AsyncMock,
@@ -223,7 +223,7 @@ class TestProcessCrawlJobIsolation:
 
         with (
             patch("api.tasks.processing._make_session", return_value=stub),
-            patch("api.services.event_processing.geocode_location") as mock_geo,
+            patch("api.tasks.geocoding.geocode_location") as mock_geo,
             patch(
                 "api.tasks.processing.merge_extracted_events",
                 side_effect=fake_merge,
@@ -292,7 +292,7 @@ class TestProcessCrawlJobEmptyJob:
 
         with (
             patch("api.tasks.processing._make_session", return_value=stub),
-            patch("api.services.event_processing.geocode_location") as mock_geo,
+            patch("api.tasks.geocoding.geocode_location") as mock_geo,
             patch(
                 "api.tasks.processing.merge_extracted_events",
                 new_callable=AsyncMock,

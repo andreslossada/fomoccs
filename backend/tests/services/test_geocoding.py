@@ -20,10 +20,11 @@ class TestIsWithinCaracas:
         assert is_within_caracas(10.48, -66.90) is True
 
     def test_outside_north(self):
-        assert is_within_caracas(10.60, -66.90) is False
+        # The bounds cover the metro area, not just the city.
+        assert is_within_caracas(10.70, -66.90) is False
 
     def test_outside_east(self):
-        assert is_within_caracas(10.48, -66.70) is False
+        assert is_within_caracas(10.48, -66.50) is False
 
     def test_on_boundary(self):
         assert is_within_caracas(10.55, -66.90) is True

@@ -327,24 +327,9 @@ async def test_merge_raises_on_missing_source_id(
         if call_count["n"] == 1:
             # Replace the first (unprocessed) query's rows with source_id=None.
             rows = result.all()
-            mangled = [
-                (
-                    r[0],
-                    r[1],
-                    r[2],
-                    r[3],
-                    r[4],
-                    r[5],
-                    r[6],
-                    r[7],
-                    None,  # source_id -> None
-                    r[9],
-                    r[10],
-                    r[11],
-                    r[12],
-                )
-                for r in rows
-            ]
+            # Column 8 is CrawlResult.source_id. Splicing it out of the
+            # row keeps this from going stale when the query gains a column.
+            mangled = [(*r[:8], None, *r[9:]) for r in rows]
 
             class _FakeResult:
                 def all(self_inner) -> list[Any]:
