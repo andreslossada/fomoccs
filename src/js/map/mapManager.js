@@ -54,6 +54,33 @@ const MapManager = (() => {
     const HOVER_SUFFIX = '-hover';
 
     // ========================================
+    // STYLE-SAFE ACCESSORS
+    // ========================================
+    //
+    // MapLibre's Map.getLayer()/getSource() dereference `this.style`, which
+    // is null while the style is being built and after a WebGL context loss
+    // (MapLibre nulls it and waits for the context to come back). Calling
+    // them then throws a TypeError, so every "does this layer exist?" check
+    // has to go through these two helpers instead.
+
+    /** @returns {boolean} whether the map currently has a usable style. */
+    function styleReady(map) {
+        return !!(map && map.style);
+    }
+
+    /** @returns {Object|null} the layer, or null when the map has no style. */
+    function layer(map, id) {
+        if (!styleReady(map)) return null;
+        try { return map.getLayer(id); } catch (_) { return null; }
+    }
+
+    /** @returns {Object|null} the source, or null when the map has no style. */
+    function source(map, id) {
+        if (!styleReady(map)) return null;
+        try { return map.getSource(id); } catch (_) { return null; }
+    }
+
+    // ========================================
     // INITIALIZATION
     // ========================================
 
@@ -91,7 +118,7 @@ const MapManager = (() => {
     function _ensureLayers() {
         const map = state.mapInstance;
         if (!map || !map.isStyleLoaded()) return;
-        if (map.getSource('markers')) return; // Already set up
+        if (source(map, 'markers')) return; // Already set up
 
         state.layersAdded = false;
         state.promotedSignature = null;
@@ -216,18 +243,18 @@ const MapManager = (() => {
 
     function _syncDotTheme() {
         const map = state.mapInstance;
-        if (!map?.getLayer('marker-dots')) return;
+        if (!layer(map, 'marker-dots')) return;
         const dark = Utils.getCurrentTheme() === 'dark';
-        if (dark && !map.getLayer('marker-dot-density')) {
+        if (dark && !layer(map, 'marker-dot-density')) {
             map.addLayer(DotDensityLayer.create(() => ({ places: state.rankedPlaces, promoted: state.promotedPlaces })), 'marker-symbols');
-        } else if (!dark && map.getLayer('marker-dot-density')) map.removeLayer('marker-dot-density');
+        } else if (!dark && layer(map, 'marker-dot-density')) map.removeLayer('marker-dot-density');
         map.setPaintProperty('marker-dots', 'circle-color', FormatColors.dotExpression());
         map.setPaintProperty('marker-dots', 'circle-opacity', dark ? 0 : .55);
     }
 
     function refreshPromotedMarkers() {
         const map = state.mapInstance;
-        if (!map?.getLayer('marker-symbols')) return;
+        if (!layer(map, 'marker-symbols')) return;
         const canvas = map.getCanvas();
         const rect = canvas.getBoundingClientRect();
         // The canvas extends beyond the window for map tilt/overscan. Budget
@@ -665,9 +692,9 @@ const MapManager = (() => {
         const geojson = { type: 'FeatureCollection', features };
         state.sourceDataCache = geojson;
 
-        const source = map.getSource('markers');
-        if (source) {
-            source.setData(geojson);
+        const src = source(map, 'markers');
+        if (src) {
+            src.setData(geojson);
         }
 
         // Re-apply active state if popup is open
@@ -689,9 +716,9 @@ const MapManager = (() => {
         reloadIconImages();
 
         // Restore data
-        const source = map.getSource('markers');
-        if (source) {
-            source.setData(state.sourceDataCache);
+        const src = source(map, 'markers');
+        if (src) {
+            src.setData(state.sourceDataCache);
         }
 
         // Rebuild lookup maps — icons are emitted first; labelType disambiguates
@@ -738,7 +765,7 @@ const MapManager = (() => {
      */
     function _updateHoverFilter() {
         const map = state.mapInstance;
-        if (!map || !map.getLayer('marker-symbols-hover')) return;
+        if (!layer(map, 'marker-symbols-hover')) return;
 
         const keys = new Set();
         if (state.hoveredFeatureId !== null) {
@@ -775,7 +802,7 @@ const MapManager = (() => {
      */
     function _setHoverLabelEvent(locationKey, labelEvent) {
         const map = state.mapInstance;
-        if (!map || !map.getLayer('marker-symbols-hover')) return;
+        if (!layer(map, 'marker-symbols-hover')) return;
         const iconFid = state.locationKeyToFeatureId.get(locationKey);
         const icon = (iconFid !== undefined && state.sourceDataCache)
             ? state.sourceDataCache.features[iconFid]
@@ -810,7 +837,7 @@ const MapManager = (() => {
     /** Restore the hover layer's default event icon and label. */
     function _clearHoverLabelEvent() {
         const map = state.mapInstance;
-        if (!map || state.hoverLabelEventSig === null || !map.getLayer('marker-symbols-hover')) return;
+        if (state.hoverLabelEventSig === null || !layer(map, 'marker-symbols-hover')) return;
         state.hoverLabelEventSig = null;
         state.hoverIconImageId = null;
         map.setLayoutProperty('marker-symbols-hover', 'text-field', _getTextFieldExpression());
@@ -827,7 +854,7 @@ const MapManager = (() => {
     // Keep logical active state in the caller; the restore path reapplies it later.
     function _setMarkerFeatureState(id, value) {
         const map = state.mapInstance;
-        if (map && map.getSource('markers')) {
+        if (source(map, 'markers')) {
             map.setFeatureState({ source: 'markers', id }, value);
             const key = state.featureIdToLocationKey.get(id);
             const labelId = state.locationKeyToLabelFeatureId.get(key);
@@ -1075,7 +1102,7 @@ const MapManager = (() => {
     /** Refreshes marker colors and labels after the map style changes. */
     function applyThemeToLayers() {
         const map = state.mapInstance;
-        if (!map || !map.getLayer('marker-symbols')) return;
+        if (!layer(map, 'marker-symbols')) return;
 
         const font = _getMarkerTextFont();
         _syncIconEpoch();
@@ -1086,7 +1113,7 @@ const MapManager = (() => {
         map.setLayoutProperty('marker-symbols', 'text-font', font);
         map.setLayoutProperty('marker-symbols', 'text-field', _getTextFieldExpression());
 
-        if (map.getLayer('marker-symbols-hover')) {
+        if (layer(map, 'marker-symbols-hover')) {
             map.setPaintProperty('marker-symbols-hover', 'text-color', _getHoverLabelColor());
             map.setPaintProperty('marker-symbols-hover', 'text-halo-color', _getHaloColor());
             map.setLayoutProperty('marker-symbols-hover', 'text-font', font);
