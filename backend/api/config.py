@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     secret_key: str = "changeme-secret"
     geoapify_api_key: str = ""
     google_maps_api_key: str = ""
+    nominatim_enabled: bool = True
+    nominatim_user_agent: str = "Fomoccs/1.0 (Caracas events map)"
     redis_url: str = "redis://localhost:6379/0"
 
     def model_post_init(self, __context: object) -> None:

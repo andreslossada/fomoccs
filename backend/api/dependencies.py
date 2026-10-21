@@ -185,16 +185,27 @@ GeoapifyKeyDep = Annotated[str, Depends(get_geoapify_key)]
 class GeocodingKeys:
     """Container for the configured geocoding provider keys.
 
-    Google is primary; Geoapify is a free safety net. Either may be
-    unconfigured; the flow handles missing keys gracefully.
+    Google is primary; Geoapify is a free safety net; Nominatim is the
+    key-free last resort. Any of them may be unconfigured; the flow
+    handles missing keys gracefully.
     """
 
-    def __init__(self, google_api_key: str, geoapify_api_key: str) -> None:
+    def __init__(
+        self,
+        google_api_key: str,
+        geoapify_api_key: str,
+        nominatim_enabled: bool = True,
+        nominatim_user_agent: str = "Fomoccs/1.0 (Caracas events map)",
+    ) -> None:
         self.google_api_key = google_api_key
         self.geoapify_api_key = geoapify_api_key
+        self.nominatim_enabled = nominatim_enabled
+        self.nominatim_user_agent = nominatim_user_agent
 
     def has_any(self) -> bool:
-        return bool(self.google_api_key or self.geoapify_api_key)
+        return bool(
+            self.google_api_key or self.geoapify_api_key or self.nominatim_enabled
+        )
 
 
 async def get_geocoding_keys() -> GeocodingKeys:
@@ -203,6 +214,8 @@ async def get_geocoding_keys() -> GeocodingKeys:
     keys = GeocodingKeys(
         google_api_key=settings.google_maps_api_key,
         geoapify_api_key=settings.geoapify_api_key,
+        nominatim_enabled=settings.nominatim_enabled,
+        nominatim_user_agent=settings.nominatim_user_agent,
     )
     if not keys.has_any():
         raise HTTPException(

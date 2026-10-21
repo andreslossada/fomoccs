@@ -29,8 +29,9 @@ async def _geocode_location(location_id: int) -> None:
     settings = get_settings()
     google_api_key = settings.google_maps_api_key
     geoapify_api_key = settings.geoapify_api_key
-    if not google_api_key and not geoapify_api_key:
-        logger.warning("No geocoding provider keys configured, skipping geocoding")
+    nominatim_enabled = settings.nominatim_enabled
+    if not google_api_key and not geoapify_api_key and not nominatim_enabled:
+        logger.warning("No geocoding provider available, skipping geocoding")
         return
 
     session_factory = _make_session()
@@ -51,6 +52,8 @@ async def _geocode_location(location_id: int) -> None:
             address=location.address,
             google_api_key=google_api_key,
             geoapify_api_key=geoapify_api_key,
+            nominatim_enabled=nominatim_enabled,
+            nominatim_user_agent=settings.nominatim_user_agent,
         )
 
         if result is None:

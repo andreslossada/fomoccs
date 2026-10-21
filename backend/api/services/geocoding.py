@@ -1,15 +1,17 @@
 """Geocoding service for Caracas venue resolution.
 
 Primary provider: Google Places API (Text Search) — better venue coverage
-for Caracas-specific venues. Fallback: Geoapify — free tier, catches edge
-cases Google misses.
+for Caracas-specific venues. Fallbacks: Geoapify — free tier, catches edge
+cases Google misses; Nominatim (OpenStreetMap) — key-free, always available.
 
-Both providers are biased to Caracas bounds; results outside the bounding
+All providers are biased to Caracas bounds; results outside the bounding
 box are dropped to avoid wrong-city matches.
 """
 
+import asyncio
 import math
 import re
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -29,6 +31,26 @@ CCS_CENTER = {"lat": 10.48, "lng": -66.90}
 
 GEOAPIFY_SEARCH_URL = "https://api.geoapify.com/v1/geocode/search"
 GOOGLE_PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
+NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
+
+# Nominatim's public instance allows at most 1 request/second per client.
+NOMINATIM_USER_AGENT = "Fomoccs/1.0 (Caracas events map)"
+NOMINATIM_MIN_INTERVAL_S = 1.1
+
+# Process-wide throttle so concurrent workers share one request/second
+# budget instead of each opening their own.
+_nominatim_lock = asyncio.Lock()
+_nominatim_last_call = 0.0
+
+
+async def _throttle_nominatim() -> None:
+    """Hold the shared Nominatim rate limit."""
+    global _nominatim_last_call
+    async with _nominatim_lock:
+        wait = NOMINATIM_MIN_INTERVAL_S - (time.monotonic() - _nominatim_last_call)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _nominatim_last_call = time.monotonic()
 
 
 @dataclass
@@ -221,18 +243,100 @@ async def google_places_search(
     return None
 
 
+async def nominatim_search(
+    name: str,
+    *,
+    address: str | None = None,
+    user_agent: str = NOMINATIM_USER_AGENT,
+    client: httpx.AsyncClient | None = None,
+) -> GeocodingResult | None:
+    """Forward-geocode a venue name via OpenStreetMap Nominatim.
+
+    Key-free fallback that keeps working when the paid providers are
+    unavailable or out of quota. The query is biased to the Caracas
+    bounding box and to Venezuela, and hits outside the box are dropped.
+
+    Returns ``None`` on API error or when nothing resolves in Caracas.
+    """
+    query = f"{name}, Caracas, Venezuela"
+    if address:
+        query = f"{name}, {address}, Caracas, Venezuela"
+
+    # viewbox is lon_min,lat_min,lon_max,lat_max — bounded=1 prefers hits inside it.
+    viewbox = (
+        f"{CCS_BOUNDS['lng_min']},{CCS_BOUNDS['lat_min']},"
+        f"{CCS_BOUNDS['lng_max']},{CCS_BOUNDS['lat_max']}"
+    )
+    params: dict[str, str | int] = {
+        "q": query,
+        "format": "json",
+        "limit": 5,
+        "addressdetails": 1,
+        "countrycodes": "ve",
+        "viewbox": viewbox,
+    }
+
+    try:
+        headers = {"User-Agent": user_agent, "Accept-Language": "es,en"}
+        await _throttle_nominatim()
+        if client is not None:
+            resp = await client.get(
+                NOMINATIM_SEARCH_URL, params=params, headers=headers, timeout=15.0
+            )
+        else:
+            async with httpx.AsyncClient(timeout=15.0) as _client:
+                resp = await _client.get(
+                    NOMINATIM_SEARCH_URL, params=params, headers=headers, timeout=15.0
+                )
+        resp.raise_for_status()
+        data = resp.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+
+    if not isinstance(data, list):
+        return None
+
+    for hit in data:
+        if not isinstance(hit, dict):
+            continue
+        # Nominatim serialises lat/lon as strings — coerce before validating.
+        try:
+            lat = float(hit["lat"])
+            lon = float(hit["lon"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not is_within_caracas(lat, lon):
+            continue
+
+        importance = hit.get("importance")
+        confidence = float(importance) if isinstance(importance, (int, float)) else 0.5
+        formatted = hit.get("display_name", "")
+        return GeocodingResult(
+            lat=lat,
+            lng=lon,
+            formatted_address=str(formatted),
+            confidence=confidence,
+        )
+
+    return None
+
+
 async def geocode_with_fallback(
     name: str,
     *,
     address: str | None = None,
     google_api_key: str | None = None,
     geoapify_api_key: str | None = None,
+    nominatim_enabled: bool = True,
+    nominatim_user_agent: str = NOMINATIM_USER_AGENT,
     client: httpx.AsyncClient | None = None,
 ) -> GeocodingResult | None:
-    """Try Google Places first, fall back to Geoapify, return ``None`` if both fail.
+    """Try Google Places, then Geoapify, then Nominatim.
 
     Google Places is preferred because it has better venue coverage for
-    Caracas-specific venues. Geoapify is kept as a free safety net.
+    Caracas-specific venues. Geoapify is kept as a free safety net, and
+    Nominatim guarantees a key-free path so a venue never goes unmapped
+    just because every API key is missing, expired or over quota.
     """
     if google_api_key:
         result = await google_places_search(
@@ -241,7 +345,16 @@ async def geocode_with_fallback(
         if result is not None:
             return result
     if geoapify_api_key:
-        return await geocode_location_name(
+        result = await geocode_location_name(
             name, geoapify_api_key, address=address, client=client
+        )
+        if result is not None:
+            return result
+    if nominatim_enabled:
+        return await nominatim_search(
+            name,
+            address=address,
+            user_agent=nominatim_user_agent,
+            client=client,
         )
     return None

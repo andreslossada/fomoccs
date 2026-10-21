@@ -166,6 +166,8 @@ async def bulk_create_locations(
                 address=loc.address,
                 google_api_key=keys.google_api_key,
                 geoapify_api_key=keys.geoapify_api_key,
+                nominatim_enabled=keys.nominatim_enabled,
+                nominatim_user_agent=keys.nominatim_user_agent,
                 client=client,
             )
 
@@ -341,6 +343,8 @@ async def backfill_geocode(
                 address=loc.address,
                 google_api_key=keys.google_api_key,
                 geoapify_api_key=keys.geoapify_api_key,
+                nominatim_enabled=keys.nominatim_enabled,
+                nominatim_user_agent=keys.nominatim_user_agent,
                 client=client,
             )
 
@@ -455,6 +459,8 @@ async def geocode_location(
         address=location.address,
         google_api_key=keys.google_api_key,
         geoapify_api_key=keys.geoapify_api_key,
+        nominatim_enabled=keys.nominatim_enabled,
+        nominatim_user_agent=keys.nominatim_user_agent,
     )
 
     if result is None:
