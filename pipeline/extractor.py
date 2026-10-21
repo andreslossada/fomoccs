@@ -157,7 +157,33 @@ def _build_provider_chain() -> list[ProviderConfig]:
     """Construct the ordered fallback chain from environment variables."""
     chain: list[ProviderConfig] = []
 
-    # --- OpenCode Go (primary — subscription with generous limits) ---
+    # --- OpenCode Zen (standard gateway) ---
+    # The "go" gateway shares a workspace-wide monthly quota that can be
+    # exhausted for the whole team. The standard zen gateway is billed
+    # separately, so it is the more reliable primary. Both use the same
+    # OpenAI-compatible /chat/completions API and the same session header.
+    zen_key = os.environ.get("OPENCODE_ZEN_API_KEY", "")
+    if zen_key:
+        zen_client = openai.AsyncOpenAI(
+            api_key=zen_key,
+            base_url=os.environ.get(
+                "OPENCODE_ZEN_BASE_URL", "https://opencode.ai/zen/v1"
+            ),
+        )
+        chain.append(
+            ProviderConfig(
+                label="opencode-zen",
+                client=zen_client,
+                model=os.environ.get("OPENCODE_ZEN_MODEL", "deepseek-v4.1-flash"),
+                rpm=100,
+                delay=0.6,
+                input_price_per_token=0.14 / 1_000_000,
+                output_price_per_token=0.28 / 1_000_000,
+                session_per_request=True,
+            )
+        )
+
+    # --- OpenCode Go (secondary — workspace monthly quota) ---
     # OpenCode Go requires an x-opencode-session header for routing. The model
     # name must match the catalog exactly (GET /zen/go/v1/models), otherwise the
     # gateway answers "Upstream request failed: Model is unavailable."
