@@ -140,7 +140,11 @@ jobs:
   test-frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    # Pinned: the current ubuntu-latest image is 26.04, which the bundled
+    # Playwright does not support ("Playwright does not support chromium on
+    # ubuntu26.04-x64"), so the browser install fails and the job fails with
+    # it. 24.04 is supported.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

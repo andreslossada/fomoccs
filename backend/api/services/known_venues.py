@@ -337,7 +337,6 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "carmen araujo arte": VenueCoords(
         10.4970, -66.8547, "Carmen Araujo Arte, Av. Luis Roche, Chacao"
     ),
-
     # ----- Venues discovered in production crawl data -----
     "hotel jw marriott caracas": VenueCoords(
         10.5000, -66.8800, "Av. Venezuela con Mohedano, Marriott, Caracas"
@@ -369,21 +368,15 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "plaza de la juventud": VenueCoords(
         10.4880, -66.8800, "Plaza de la Juventud, El Calvario, Caracas"
     ),
-    "cinética cultural": VenueCoords(
-        10.4880, -66.8800, "El Calvario, Caracas"
-    ),
-    "cinetica cultural": VenueCoords(
-        10.4880, -66.8800, "El Calvario, Caracas"
-    ),
+    "cinética cultural": VenueCoords(10.4880, -66.8800, "El Calvario, Caracas"),
+    "cinetica cultural": VenueCoords(10.4880, -66.8800, "El Calvario, Caracas"),
     "anfiteatro del sambil caracas": VenueCoords(
         10.4915, -66.8536, "Sambil Caracas, Av. Libertador"
     ),
     "anfiteatro del sambil caracas chacao": VenueCoords(
         10.4915, -66.8536, "Sambil Caracas, Av. Libertador"
     ),
-    "pizpa comedy club": VenueCoords(
-        10.4970, -66.8560, "Las Mercedes, Caracas"
-    ),
+    "pizpa comedy club": VenueCoords(10.4970, -66.8560, "Las Mercedes, Caracas"),
     "agenda cultural ccs": VenueCoords(
         10.4900, -66.8800, "Alcaldía de Caracas, Plaza Caracas"
     ),
@@ -396,21 +389,11 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "concha acustica de la carlota": VenueCoords(
         10.4790, -66.8733, "Parque del Este, Bello Monte"
     ),
-    "vista bar": VenueCoords(
-        10.4915, -66.8536, "Sambil Caracas, Av. Libertador"
-    ),
-    "secret location": VenueCoords(
-        10.4900, -66.8800, "Caracas"
-    ),
-    "salon salsa": VenueCoords(
-        10.4900, -66.8800, "Caracas"
-    ),
-    "campus de la ucab": VenueCoords(
-        10.5000, -66.8744, "UCAB, Montalbán, Caracas"
-    ),
-    "ccct": VenueCoords(
-        10.4888, -66.8619, "Ciudad Tamanaco, Av. Libertador, Caracas"
-    ),
+    "vista bar": VenueCoords(10.4915, -66.8536, "Sambil Caracas, Av. Libertador"),
+    "secret location": VenueCoords(10.4900, -66.8800, "Caracas"),
+    "salon salsa": VenueCoords(10.4900, -66.8800, "Caracas"),
+    "campus de la ucab": VenueCoords(10.5000, -66.8744, "UCAB, Montalbán, Caracas"),
+    "ccct": VenueCoords(10.4888, -66.8619, "Ciudad Tamanaco, Av. Libertador, Caracas"),
     "centro comercial ciudad tamanaco": VenueCoords(
         10.4888, -66.8619, "Ciudad Tamanaco, Av. Libertador, Caracas"
     ),
@@ -420,12 +403,8 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "hard rock cafe": VenueCoords(
         10.5000, -66.8620, "Plazaisentium, Los Palos Grandes, Caracas"
     ),
-    "chacao caracas": VenueCoords(
-        10.4940, -66.8555, "Chacao, Caracas"
-    ),
-    "aula magna": VenueCoords(
-        10.4905, -66.9005, "Ciudad Universitaria UCV, Caracas"
-    ),
+    "chacao caracas": VenueCoords(10.4940, -66.8555, "Chacao, Caracas"),
+    "aula magna": VenueCoords(10.4905, -66.9005, "Ciudad Universitaria UCV, Caracas"),
     "aula magna de la universidad central de venezuela": VenueCoords(
         10.4905, -66.9005, "Ciudad Universitaria UCV, Caracas"
     ),
