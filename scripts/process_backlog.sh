@@ -43,26 +43,33 @@ DB_USER="$(grep -E '^DB_USER=' "$BACKEND_ENV" | cut -d= -f2-)"
 DB_PASS="$(grep -E '^DB_PASS=' "$BACKEND_ENV" | cut -d= -f2-)"
 
 JOB_IDS="$("$PY" -X utf8 -c "
-import psycopg2, sys
+import asyncio, sys
+import asyncpg
+
 limit = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1] else 0
-conn = psycopg2.connect(
-    host=sys.argv[2], port=int(sys.argv[3]), dbname=sys.argv[4],
-    user=sys.argv[5], password=sys.argv[6],
-)
-cur = conn.cursor()
-q = '''
-    SELECT cr.crawl_job_id, MIN(cj.started_at) AS oldest
-    FROM crawl_results cr
-    LEFT JOIN crawl_jobs cj ON cj.id = cr.crawl_job_id
-    WHERE cr.status = 'extracted'
-    GROUP BY cr.crawl_job_id
-    ORDER BY oldest ASC NULLS LAST
-'''
-if limit > 0:
-    q += ' LIMIT %s' % limit
-cur.execute(q)
-print(' '.join(str(r[0]) for r in cur.fetchall()))
-conn.close()
+
+async def main():
+    conn = await asyncpg.connect(
+        host=sys.argv[2], port=int(sys.argv[3]), database=sys.argv[4],
+        user=sys.argv[5], password=sys.argv[6],
+    )
+    try:
+        q = '''
+            SELECT cr.crawl_job_id, MIN(cj.started_at) AS oldest
+            FROM crawl_results cr
+            LEFT JOIN crawl_jobs cj ON cj.id = cr.crawl_job_id
+            WHERE cr.status = 'extracted'
+            GROUP BY cr.crawl_job_id
+            ORDER BY oldest ASC NULLS LAST
+        '''
+        if limit > 0:
+            q += ' LIMIT %s' % limit
+        rows = await conn.fetch(q)
+        print(' '.join(str(r['crawl_job_id']) for r in rows))
+    finally:
+        await conn.close()
+
+asyncio.run(main())
 " "$LIMIT" "$DB_HOST" "$DB_PORT" "$DB_NAME" "$DB_USER" "$DB_PASS")"
 
 read -r -a JOBS <<< "$JOB_IDS"
