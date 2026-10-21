@@ -730,8 +730,11 @@ ENRICHMENT_BATCH_SIZE = 30
 
 # Default maximum number of enrichment batches for large pages
 # Limits API cost by capping how many events get enriched
-# Can be overridden per-website via the max_batches column
-DEFAULT_MAX_BATCHES = 3
+# Can be overridden per-website via the max_batches column.
+# 10 batches = 300 events per source per crawl. The previous value of 3
+# (90 events) silently truncated every large venue's calendar, which is
+# where most of the remaining listings live.
+DEFAULT_MAX_BATCHES = 10
 
 # Timeout per chunk (seconds) - increased for large pages that can't be chunked
 CHUNK_TIMEOUT = 300
@@ -740,10 +743,10 @@ CHUNK_TIMEOUT = 300
 MAX_CHUNK_CHARS = 30000
 
 # Hard limit on total content size before extraction (characters).
-# Pages exceeding this will be truncated. 120K chars ≈ 4 chunks of 30K,
-# which is plenty for any events page. Prevents runaway extraction on
-# pages with huge archives (e.g., years of past events).
-MAX_CONTENT_CHARS = 120000
+# Pages exceeding this will be truncated. 400K chars ≈ 13 chunks of 30K.
+# The previous 120K cap cut mid-listing on venue calendars that render
+# hundreds of events, dropping every event after that point.
+MAX_CONTENT_CHARS = 400000
 
 # Maximum number of images to process for vision extraction
 MAX_VISION_IMAGES = 10
@@ -1151,7 +1154,66 @@ def get_enrichment_prompt(event_names, venue_name):
 Events to enrich:
 {names_list}
 
-Return a JSON object with "enrichments" key mapping each event name to its enrichment data."""
+Return a JSON object with an "enrichments" key containing an ARRAY of objects.
+Each object must have exactly these keys: "name" (the event name, copied verbatim),
+"description", "hashtags" (array of strings), "emoji".
+
+Example:
+{{"enrichments": [{{"name": "{event_names[0] if event_names else "Event"}", "description": "...", "hashtags": ["Comedia"], "emoji": "🎭"}}]}}"""
+
+
+def _normalize_enrichments(result: object) -> dict[str, dict[str, object]]:
+    """Normalize the many shapes an enrichment response can take.
+
+    Models answer with any of these, and all of them used to be fatal:
+    a list of dicts, a dict keyed by event name, or a bare list of names.
+    Every shape is accepted; anything unusable is skipped rather than
+    failing the whole batch (which used to drop the description, hashtags
+    and emoji of every event in it).
+    """
+    if not isinstance(result, dict):
+        return {}
+
+    raw = result.get("enrichments")
+    if raw is None:
+        return {}
+
+    out: dict[str, dict[str, object]] = {}
+
+    def _entry(name: str, data: object) -> None:
+        if not name:
+            return
+        if not isinstance(data, dict):
+            return
+        hashtags = data.get("hashtags")
+        if isinstance(hashtags, str):
+            hashtags = [hashtags]
+        elif not isinstance(hashtags, list):
+            hashtags = []
+        out[name] = {
+            "description": str(data.get("description") or ""),
+            "hashtags": [str(t) for t in hashtags],
+            "emoji": str(data.get("emoji") or "📅"),
+        }
+
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict):
+                _entry(str(item.get("name") or ""), item)
+            elif isinstance(item, str):
+                # Bare name — the model did not fill in the details, but the
+                # key still needs to exist so the caller does not treat the
+                # event as missing an enrichment.
+                out.setdefault(item, {"description": "", "hashtags": [], "emoji": "📅"})
+    elif isinstance(raw, dict):
+        # Either {"Event name": {...}} or {"name": ..., "description": ...}.
+        if "name" in raw:
+            _entry(str(raw.get("name") or ""), raw)
+        else:
+            for name, data in raw.items():
+                _entry(str(name), data)
+
+    return out
 
 
 async def enrich_events_batch(event_names, venue_name, tracker=None):
@@ -1175,14 +1237,7 @@ async def enrich_events_batch(event_names, venue_name, tracker=None):
         if tracker:
             tracker.track(response, label=f"enrichment:{venue_name}", provider=provider)
         result = json.loads(response.choices[0].message.content.strip())
-        return {
-            item.get("name", ""): {
-                "description": item.get("description", ""),
-                "hashtags": item.get("hashtags", []),
-                "emoji": item.get("emoji", "📅"),
-            }
-            for item in result.get("enrichments", [])
-        }
+        return _normalize_enrichments(result)
     except Exception as e:
         print(f"    - Enrichment batch error: {e}")
         return {}
