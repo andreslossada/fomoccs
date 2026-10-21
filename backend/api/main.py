@@ -185,6 +185,46 @@ setup_admin(app)
 
 # Serve frontend static files — must be last so API routes take priority
 # Skipped in Docker where frontend is served from Cloud Storage
-_frontend_dir = Path(__file__).resolve().parent.parent.parent / "src"
-if _frontend_dir.is_dir():
-    app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
+#
+# The served directory is the BUILD OUTPUT (dist/), not the sources (src/).
+# The sources are not a runnable site: build.js substitutes the {{TOKEN}}
+# placeholders in index.html and injects window.__CITY__ (map centre,
+# timezone, filter roots) and API_BASE_URL. Serving src/ directly therefore
+# shows literal {{SITE_NAME}} in the title and gives the map no centre, so it
+# renders blank. dist/ is also what production serves.
+#
+# With no build yet, fall back to a page that says so rather than a broken
+# app.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_DIST_DIR = _REPO_ROOT / "dist"
+_SRC_DIR = _REPO_ROOT / "src"
+if (_DIST_DIR / "index.html").is_file():
+    # follow_symlink: a dev build links data/, fonts/, images/ and vendor/ from
+    # dist/ back to src/ so edits show up without a rebuild. Starlette refuses
+    # to traverse symlinks by default, which turned every asset into a 404.
+    app.mount(
+        "/",
+        StaticFiles(directory=_DIST_DIR, html=True, follow_symlink=True),
+        name="frontend",
+    )
+elif _SRC_DIR.is_dir():
+    # A checkout with no build yet. In Docker neither directory exists — the
+    # frontend is served from Cloud Storage there — so nothing is registered
+    # and the API root stays a plain 404.
+    from fastapi.responses import HTMLResponse
+
+    @app.get("/", include_in_schema=False)
+    async def _frontend_not_built() -> HTMLResponse:
+        return HTMLResponse(
+            "<!doctype html><meta charset=utf-8>"
+            "<title>Fomoccs — frontend not built</title>"
+            "<body style='font:16px/1.6 system-ui;padding:3rem;max-width:40rem;"
+            "margin:auto'>"
+            "<h1>The frontend has not been built</h1>"
+            "<p>This server serves the built frontend from <code>dist/</code>, "
+            "which does not exist yet.</p>"
+            "<p>Build it with <code>npm run build</code> (or <code>npm run dev</code> "
+            "to rebuild on change), then reload this page.</p>"
+            "</body>",
+            status_code=503,
+        )

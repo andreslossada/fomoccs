@@ -129,6 +129,32 @@ function applyBranding(html, fe) {
     return html;
 }
 
+/**
+ * Make `link` point at `target` without copying when the platform allows it.
+ *
+ * On Windows a plain symlink needs elevated rights or developer mode, and a
+ * target written as a POSIX path (/c/Users/...) does not resolve at all — the
+ * directory then 404s for every asset. A junction needs no special rights and
+ * always stores an absolute Windows path, so it is the right tool there.
+ * Everywhere else a directory symlink is fine.
+ *
+ * If the link cannot be created at all, copy instead: a slower build beats a
+ * build whose assets are missing.
+ */
+function linkOrCopy(target, link) {
+    // realpath resolves any symlinked prefix, so the stored target is a path
+    // the OS can actually open.
+    const resolved = (() => {
+        try { return fs.realpathSync(target); } catch (_) { return path.resolve(target); }
+    })();
+    try {
+        fs.symlinkSync(resolved, link, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (err) {
+        console.warn(`  could not link ${link} (${err.code || err.message}); copying instead`);
+        copyDirSync(target, link);
+    }
+}
+
 async function build(isDev) {
     const startTime = Date.now();
 
@@ -261,13 +287,13 @@ async function build(isDev) {
     }
 
     // Copy asset directories into dist/
-    // Dev: symlinks (fast, live updates); Prod: full copies (self-contained)
+    // Dev: link them (fast, live updates); Prod: full copies (self-contained)
     for (const dir of ASSET_DIRS) {
         const target = path.join(SRC, dir);
         const link = path.join(DIST, dir);
         if (!fs.existsSync(target)) continue;
         if (isDev) {
-            fs.symlinkSync(target, link);
+            linkOrCopy(target, link);
         } else {
             copyDirSync(target, link);
         }
