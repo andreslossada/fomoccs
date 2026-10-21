@@ -53,7 +53,7 @@ class TestRegisterHappyPath:
         # Arrange
         payload = {
             "email": "new@example.com",
-            "password": "strongpass1",
+            "password": "Strongpass1",
             "display_name": "New User",
         }
 
@@ -74,7 +74,7 @@ class TestRegisterHappyPath:
         # Arrange
         payload = {
             "email": "nodisplay@example.com",
-            "password": "strongpass1",
+            "password": "Strongpass1",
         }
 
         # Act
@@ -92,7 +92,7 @@ class TestRegisterValidation:
         # Arrange
         payload = {
             "email": "existing@example.com",
-            "password": "anotherpass1",
+            "password": "Anotherpass1",
         }
 
         # Act

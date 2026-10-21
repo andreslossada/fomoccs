@@ -243,7 +243,9 @@ async def bulk_create_locations(
                 lng=lng,
                 emoji=loc_data.emoji,
                 alt_emoji=loc_data.alt_emoji,
-                website_url=loc_data.website_url,
+                # The column is a string; pydantic v2 hands back a Url
+                # object, which asyncpg refuses to bind.
+                website_url=str(loc_data.website_url) if loc_data.website_url else None,
                 type=loc_data.type,
             )
             db.add(location)
@@ -404,7 +406,7 @@ async def create_location(
         lng=data.lng,
         emoji=data.emoji,
         alt_emoji=data.alt_emoji,
-        website_url=data.website_url,
+        website_url=str(data.website_url) if data.website_url else None,
         type=data.type,
     )
     db.add(location)

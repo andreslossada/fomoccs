@@ -132,7 +132,9 @@ async def create_source(
         db.add(
             SourceUrl(
                 source_id=source.id,
-                url=url_data.url,
+                # The column is a string; pydantic v2 hands back a Url
+                # object, which asyncpg refuses to bind.
+                url=str(url_data.url),
                 js_code=url_data.js_code,
                 sort_order=url_data.sort_order,
             )
@@ -247,7 +249,7 @@ async def add_source_url(
 
     url = SourceUrl(
         source_id=source_id,
-        url=data.url,
+        url=str(data.url),
         js_code=data.js_code,
         sort_order=data.sort_order,
     )

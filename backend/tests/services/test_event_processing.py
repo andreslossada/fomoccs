@@ -71,7 +71,7 @@ async def test_resolve_location_exact_name_match(db_session: AsyncSession) -> No
     db_session.add(existing)
     await db_session.flush()
 
-    with patch("api.services.event_processing.geocode_location") as mock_task:
+    with patch("api.tasks.geocoding.geocode_location") as mock_task:
         result = await resolve_location(
             db_session,
             location_name="Museum of Modern Art",
@@ -92,7 +92,7 @@ async def test_resolve_location_alternate_name_match(db_session: AsyncSession) -
     db_session.add(loc)
     await db_session.flush()
 
-    with patch("api.services.event_processing.geocode_location") as mock_task:
+    with patch("api.tasks.geocoding.geocode_location") as mock_task:
         result = await resolve_location(
             db_session,
             location_name="MoMA",
@@ -114,7 +114,7 @@ async def test_resolve_location_fuzzy_match_above_threshold(
     db_session.add(loc)
     await db_session.flush()
 
-    with patch("api.services.event_processing.geocode_location") as mock_task:
+    with patch("api.tasks.geocoding.geocode_location") as mock_task:
         result = await resolve_location(
             db_session,
             location_name="Museum of Moderne Art",
@@ -158,7 +158,7 @@ async def test_resolve_location_unknown_creates_and_enqueues_geocode(
 async def test_resolve_location_none_location_name_returns_none(
     db_session: AsyncSession,
 ) -> None:
-    with patch("api.services.event_processing.geocode_location") as mock_task:
+    with patch("api.tasks.geocoding.geocode_location") as mock_task:
         result = await resolve_location(
             db_session,
             location_name=None,
@@ -182,7 +182,7 @@ async def test_resolve_location_dedup_hits_when_sublocation_matches(
     db_session.add(existing)
     await db_session.flush()
 
-    with patch("api.services.event_processing.geocode_location") as mock_task:
+    with patch("api.tasks.geocoding.geocode_location") as mock_task:
         result = await resolve_location(
             db_session,
             location_name="Centro Cultural Chacao",
@@ -205,7 +205,7 @@ async def test_resolve_location_dedup_falls_back_to_null_address(
     db_session.add(existing)
     await db_session.flush()
 
-    with patch("api.services.event_processing.geocode_location") as mock_task:
+    with patch("api.tasks.geocoding.geocode_location") as mock_task:
         result = await resolve_location(
             db_session,
             location_name="Centro Cultural Chacao",
