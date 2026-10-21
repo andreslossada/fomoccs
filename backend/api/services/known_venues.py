@@ -76,6 +76,10 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "centro cultural de arte moderno": VenueCoords(
         10.4967, -66.8722, "Torre BOD, Av. Bolívar, Caracas"
     ),
+    # Venues that drop the connector word.
+    "centro cultural arte moderno": VenueCoords(
+        10.4967, -66.8722, "Torre BOD, Av. Bolívar, Caracas"
+    ),
     "ccam": VenueCoords(10.4967, -66.8722, "Torre BOD, Av. Bolívar, Caracas"),
     "centro de arte los galpones": VenueCoords(
         10.4638, -66.9146, "Av. Ávila con Sur 11, Los Galpones"
@@ -332,6 +336,19 @@ _KNOWN_VENUES: dict[str, VenueCoords] = {
     "el sistema": VenueCoords(
         10.4905, -66.9005, "El Sistema, Bellas Artes, Ciudad Universitaria"
     ),
+    "nucleos de el sistema": VenueCoords(
+        10.4905, -66.9005, "El Sistema, Bellas Artes, Ciudad Universitaria"
+    ),
+    "nucleos del sistema": VenueCoords(
+        10.4905, -66.9005, "El Sistema, Bellas Artes, Ciudad Universitaria"
+    ),
+    # --- Venues whose names only appear inside a longer listing name ---
+    "caracas campus": VenueCoords(
+        10.4342, -66.8600, "Calle Altagracia, Zona Industrial La Trinidad, Caracas"
+    ),
+    "sala luisela diaz": VenueCoords(
+        10.4905, -66.9005, "Ciudad Universitaria UCV, Caracas"
+    ),
     "abra caracas": VenueCoords(10.4920, -66.8860, "Av. México, Bellas Artes, Caracas"),
     "gbg arts": VenueCoords(10.4955, -66.8495, "GBG Arts, Los Palos Grandes"),
     "carmen araujo arte": VenueCoords(
@@ -420,6 +437,10 @@ def _normalize(text: str | None) -> str:
     diacritics (``í`` -> ``i``), and collapses runs of whitespace. The
     keys in :data:`_KNOWN_VENUES` are kept in this same form so lookups
     match whatever the caller passes.
+
+    Single-letter tokens are rejoined afterwards: ``Hotel J.W. Marriott``
+    normalizes to "hotel j w marriott", but the curated key is written
+    "hotel jw marriott". Without this, dotted initialisms never matched.
     """
     import re
     import unicodedata
@@ -429,20 +450,120 @@ def _normalize(text: str | None) -> str:
     nfkd = unicodedata.normalize("NFKD", text)
     ascii_form = "".join(c for c in nfkd if not unicodedata.combining(c))
     spaced = re.sub(r"[^\w\s]", " ", ascii_form.lower())
-    return " ".join(spaced.split())
+    tokens = spaced.split()
+
+    # Rejoin runs of single letters ("j w" -> "jw") so dotted initialisms
+    # match the hand-written keys.
+    rejoined: list[str] = []
+    i = 0
+    while i < len(tokens):
+        if len(tokens[i]) == 1 and tokens[i].isalnum():
+            run_end = i
+            while run_end < len(tokens) and len(tokens[run_end]) == 1:
+                run_end += 1
+            if run_end - i >= 2:
+                rejoined.append("".join(tokens[i:run_end]))
+                i = run_end
+                continue
+        rejoined.append(tokens[i])
+        i += 1
+
+    return " ".join(rejoined)
+
+
+# Normalize the curated keys with the same function so a hand-written key
+# and a scraped venue name always meet in the same form.
+_KNOWN_VENUES = {_normalize(k): v for k, v in _KNOWN_VENUES.items()}
+
+
+def _candidate_variants(text: str) -> list[str]:
+    """Return the lookup candidates for one chunk of a venue name."""
+    norm = _normalize(text)
+    if not norm:
+        return []
+
+    candidates: list[str] = [norm]
+
+    # Strip common venue prefixes.
+    for prefix in ("sala ", "auditorio ", "anfiteatro ", "estadio "):
+        if norm.startswith(prefix):
+            candidates.append(norm[len(prefix) :])
+
+    # Strip trailing "caracas" / city qualifier when nothing else matched.
+    for suffix in (" caracas", " caracas venezuela", " ccs"):
+        if norm.endswith(suffix) and len(norm) > len(suffix):
+            candidates.append(norm[: -len(suffix)])
+
+    # Some curated keys carry the city ("hotel jw marriott caracas")
+    # while the venue names them without it ("Hotel J.W. Marriott").
+    if not norm.endswith(" caracas"):
+        candidates.append(norm + " caracas")
+
+    return candidates
+
+
+# Separators used by venues to qualify a room, a branch or a city. These
+# are stripped by _normalize, so the split has to happen on the raw text.
+_NAME_SEPARATORS = (" - ", " – ", " — ", " | ", ", ", " / ", " · ", " -", "- ")
+
+
+def _split_segments(name: str) -> list[str]:
+    """Split a raw venue name into its segments."""
+    segments = [name]
+    for separator in _NAME_SEPARATORS:
+        expanded: list[str] = []
+        for segment in segments:
+            expanded.extend(segment.split(separator))
+        segments = expanded
+    return [s.strip() for s in segments if s and s.strip()]
+
+
+# A curated key must cover at least this share of the name's tokens before
+# a containment match is accepted. It keeps "Teatro Municipal de Puerto
+# Cabello" (a different city) from being pinned to a Caracas theatre.
+_CONTAINMENT_MIN_COVERAGE = 0.6
+
+
+def _containment_match(norm: str) -> VenueCoords | None:
+    """Match a curated key that appears inside the name.
+
+    Only accepted when the key covers most of the name's tokens, so a
+    generic key cannot capture an unrelated venue that merely mentions it.
+    """
+    name_tokens = norm.split()
+    if len(name_tokens) < 2:
+        return None
+
+    best: tuple[int, VenueCoords] | None = None
+    for key, coords in _KNOWN_VENUES.items():
+        key_tokens = key.split()
+        if len(key_tokens) < 2:
+            continue
+        if len(key_tokens) / len(name_tokens) < _CONTAINMENT_MIN_COVERAGE:
+            continue
+        # The key's tokens must appear contiguously in the name.
+        span = len(key_tokens)
+        for start in range(len(name_tokens) - span + 1):
+            if name_tokens[start : start + span] == key_tokens:
+                if best is None or len(key) > best[0]:
+                    best = (len(key), coords)
+                break
+
+    return best[1] if best else None
 
 
 def lookup_known_venue(name: str | None) -> VenueCoords | None:
     """Return curated coordinates for a venue name, or ``None`` if unknown.
 
-    Tries ``name`` first, then progressively removes prefixes, suffixes,
-    and segment separators until it either finds a curated hit or runs
-    out of candidates. The fallback chain is:
+    The fallback chain is:
 
       1. Exact normalized match.
       2. Strip leading "sala", "auditorio", "anfiteatro", "estadio".
       3. Strip trailing "caracas"/"caracas venezuela"/"CCS" suffix.
-      4. Split on " - ", " | ", ", "; try first and last segments.
+      4. Split the raw name on separators ("-", "|", ",") and try each
+         segment, first and last.
+      5. Containment: a curated key that appears inside the name and
+         covers most of its tokens.
     """
     if not name:
         return None
@@ -463,14 +584,14 @@ def lookup_known_venue(name: str | None) -> VenueCoords | None:
         if norm.endswith(suffix) and len(norm) > len(suffix):
             candidates.append(norm[: -len(suffix)])
 
-    # Split on common separators — first and last segments are tried.
-    for separator in (" - ", " – ", " | ", ", "):
-        if separator in norm:
-            parts = [p.strip() for p in norm.split(separator)]
-            if parts:
-                candidates.append(parts[0])
-            if len(parts) > 1:
-                candidates.append(parts[-1])
+    # Segments of the raw name — "Sala Ríos Reyna - Teatro Teresa Carreño"
+    # yields "Teatro Teresa Carreño", which is itself curated. Every
+    # segment is tried, not just the first and the last: the venue name
+    # often sits in the middle ("Salón Plaza Real — Hotel Eurobuilding,
+    # Caracas").
+    segments = _split_segments(name)
+    for segment in segments:
+        candidates.extend(_candidate_variants(segment))
 
     seen: set[str] = set()
     for candidate in candidates:
@@ -480,4 +601,4 @@ def lookup_known_venue(name: str | None) -> VenueCoords | None:
         if candidate in _KNOWN_VENUES:
             return _KNOWN_VENUES[candidate]
 
-    return None
+    return _containment_match(norm)
