@@ -117,7 +117,11 @@ class SourcesScreen(BaseListScreen):
     # ── source actions ───────────────────────────────────────────────
     def _get_selected(self) -> dict[str, Any] | None:
         table = self.query_one(f"#{self._table_id}", DataTable)
-        row_key = table.cursor_coordinate.row if table.cursor_coordinate else None
+        # cursor_coordinate is untyped in Textual, so without the annotation
+        # row_key is Any and indexing with it makes the result Any too.
+        row_key: int | None = (
+            table.cursor_coordinate.row if table.cursor_coordinate else None
+        )
         if not self._data or row_key is None or row_key >= len(self._data):
             return None
         return self._data[row_key]
