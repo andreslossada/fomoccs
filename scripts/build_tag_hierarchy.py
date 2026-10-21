@@ -224,6 +224,20 @@ FORMAT_CATEGORIES: dict[str, list[str]] = {
     "Outing": ["Empresa", "Participativo"],
 }
 
+# How each experience family is *shown*. The category names themselves are
+# internal ids: src/js/core/formatColors.js keys its colour table on them, so
+# renaming one would silently turn every marker in that family grey. The
+# display label is what the user reads, and it is translated.
+CATEGORY_LABELS: dict[str, str] = {
+    "Performance": "Espectáculos",
+    "Participatory": "Participativos",
+    "Outing": "Salidas",
+    "Social": "Social",
+    "Browsable": "Para explorar",
+    "Gathering": "Encuentros",
+    "Other": "Otros",
+}
+
 
 # ---------------------------------------------------------------------------
 # Normalization and matching
@@ -500,6 +514,8 @@ def build(tag_counts: dict[str, int]) -> dict:
             for category, names in FORMAT_CATEGORIES.items()
         },
         "format_tags": {fmt: sorted(names) for fmt, names in sorted(formats.items())},
+        # experience family -> display label
+        "format_categories": dict(CATEGORY_LABELS),
         "format_only_tags": format_only,
         "tag_redirects": dict(sorted(redirects.items())),
     }

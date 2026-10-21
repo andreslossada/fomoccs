@@ -47,9 +47,9 @@ const UIManager = (() => {
         nextSunday.setDate(nextSunday.getDate() + daysUntilSunday);
 
         const presets = [
-            { label: 'Today', range: [new Date(today), new Date(today)] },
-            { label: 'Tomorrow', range: [new Date(tomorrow), new Date(tomorrow)] },
-            { label: 'This Week', range: [new Date(today), new Date(nextSunday)] },
+            { label: Utils.label('date_presets.today', 'Today'), range: [new Date(today), new Date(today)] },
+            { label: Utils.label('date_presets.tomorrow', 'Tomorrow'), range: [new Date(tomorrow), new Date(tomorrow)] },
+            { label: Utils.label('date_presets.this_week', 'This Week'), range: [new Date(today), new Date(nextSunday)] },
         ];
 
         return presets;

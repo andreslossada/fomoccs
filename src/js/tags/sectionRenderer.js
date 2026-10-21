@@ -20,16 +20,16 @@ const SectionRenderer = (() => {
      */
     const SECTION_METADATA = {
         locations: {
-            title: 'Places',
+            title: Utils.label('sections.places', 'Places'),
         },
         events: {
-            title: 'Events',
+            title: Utils.label('sections.events', 'Events'),
         },
         tags: {
-            title: 'Tags',
+            title: Utils.label('sections.tags', 'Tags'),
         },
         organizers: {
-            title: 'Organizers',
+            title: Utils.label('sections.organizers', 'Organizers'),
         }
     };
 

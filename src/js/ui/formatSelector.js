@@ -1,6 +1,10 @@
 /** Event formats are an independent OR filter, intersected with dates and topics. */
 const FormatSelector = (() => {
+    // Copy comes from the city config so the interface can be translated
+    // without touching this module.
+    const L = key => Utils.label(`format_selector.${key}`, '');
     let groups = {};
+    let categoryLabels = {};
     let types = [];
     let selected = null; // null = all checked; empty Set = none checked. Both show all events.
     const expandedGroups = new Set();
@@ -30,8 +34,12 @@ const FormatSelector = (() => {
         }
     }
 
-    function configure(categories) {
+    function configure(categories, labels) {
         groups = { ...(categories || {}), 'Other': ['Other'] };
+        // Merge, don't replace: init() calls configure() again without the
+        // labels, and wiping them there would put the raw (English) family
+        // ids back on screen.
+        if (labels) categoryLabels = { ...categoryLabels, ...labels };
         types = [...new Set(Object.values(groups).flat())];
         for (const category of expandedGroups) if (!groups[category]) expandedGroups.delete(category);
         if (selected !== null) selected = new Set([...selected].filter(t => types.includes(t)));
@@ -69,12 +77,15 @@ const FormatSelector = (() => {
     }
     function label() {
         const values = selection();
-        return values === null || values.length === 0 ? 'All Events' : values.length === 1 ? values[0] : `${values.length} Formats`;
+        const all = L('all') || 'All Events';
+        if (values === null || values.length === 0) return all;
+        if (values.length === 1) return values[0];
+        return `${values.length} ${L('formats') || 'Formats'}`;
     }
     function sync() {
         if (!button || !panel) return;
         button.querySelector('span').textContent = label();
-        button.setAttribute('aria-label', `Event formats: ${label()}`);
+        button.setAttribute('aria-label', `${L('aria') || 'Event formats'}: ${label()}`);
         const all = panel.querySelector('[data-all-formats]');
         all.checked = selected === null;
         all.indeterminate = selected !== null && selected.size > 0;
@@ -108,6 +119,11 @@ const FormatSelector = (() => {
         });
         return row;
     }
+    /** The label to show for an experience family. */
+    function categoryName(category) {
+        return categoryLabels[category] || category;
+    }
+
     function render() {
         const focused = panel.contains(document.activeElement) ? document.activeElement : null;
         const focusFormat = focused?.dataset.format;
@@ -117,7 +133,7 @@ const FormatSelector = (() => {
         panel.replaceChildren();
         const header = document.createElement('div');
         header.className = 'format-selector-group-heading';
-        header.append(checkbox('All Events'));
+        header.append(checkbox(L('all') || 'All Events'));
         panel.append(header);
         for (const [category, formats] of Object.entries(groups)) {
             if (categoryCount(category) === 0) continue;
@@ -125,16 +141,16 @@ const FormatSelector = (() => {
             group.className = 'format-selector-group';
             if (formats.length === 1 && formats[0] === category) {
                 group.classList.add('format-selector-group-heading');
-                group.append(checkbox(category, category));
+                group.append(checkbox(categoryName(category), category));
             } else {
                 const heading = document.createElement('div');
                 heading.className = 'format-selector-group-heading';
-                heading.append(checkbox(category, null, category));
+                heading.append(checkbox(categoryName(category), null, category));
                 const children = document.createElement('div');
                 children.className = 'format-selector-children';
                 children.id = `format-group-${panel.children.length}`;
                 children.setAttribute('role', 'group');
-                children.setAttribute('aria-label', `${category} formats`);
+                children.setAttribute('aria-label', `${categoryName(category)} ${L('formats') || 'formats'}`);
                 formats.filter(type => count(type) > 0).forEach(type => children.append(checkbox(type, type)));
                 const disclosure = document.createElement('button');
                 disclosure.type = 'button';
@@ -148,7 +164,7 @@ const FormatSelector = (() => {
                     const expanded = expandedGroups.has(category);
                     children.hidden = !expanded;
                     disclosure.setAttribute('aria-expanded', String(expanded));
-                    disclosure.setAttribute('aria-label', `${expanded ? 'Collapse' : 'Expand'} ${category}`);
+                    disclosure.setAttribute('aria-label', `${expanded ? (L('collapse') || 'Collapse') : (L('expand') || 'Expand')} ${categoryName(category)}`);
                 };
                 disclosure.addEventListener('click', () => {
                     if (expandedGroups.has(category)) expandedGroups.delete(category);
@@ -164,7 +180,7 @@ const FormatSelector = (() => {
         if (!totalCount) {
             const empty = document.createElement('p');
             empty.className = 'selector-empty-message';
-            empty.textContent = 'No matching events';
+            empty.textContent = L('no_events') || 'No matching events';
             panel.append(empty);
         }
         sync();
@@ -193,7 +209,7 @@ const FormatSelector = (() => {
         const contentWidth = Math.max(
             ...types.map(type => textWidth(type) + indent),
             ...Object.keys(groups).map(category => textWidth(category) + disclosureWidth),
-            textWidth('All Events')
+            textWidth(L('all') || 'All Events')
         );
         const width = Math.min(Math.ceil(contentWidth + rowChrome
             + px(panel, 'borderLeftWidth') + px(panel, 'borderRightWidth')), window.innerWidth - 16);

@@ -79,3 +79,70 @@ frontend:
     labels: {}
 
   area_ids: {}
+
+  # UI copy. Everything the interface says lives here so the site can be
+  # translated (or re-worded) without touching the JavaScript. The modules
+  # fall back to their English originals when a key is missing, so a partial
+  # labels block is safe.
+  labels:
+    sections:
+      places: "Lugares"
+      events: "Eventos"
+      tags: "Etiquetas"
+      organizers: "Organizadores"
+
+    date_presets:
+      today: "Hoy"
+      tomorrow: "Mañana"
+      this_week: "Esta semana"
+
+    tag_selector:
+      noun: "Etiquetas"
+      search: "Buscar etiqueta"
+      all: "Todas las etiquetas"
+      required: "Requerido"
+      excluded: "Excluido"
+      active_filters: "Filtros activos de"
+      collapse: "Contraer"
+      expand: "Expandir"
+      no_match: "Ninguna etiqueta coincide"
+      no_events: "No hay eventos"
+
+    format_selector:
+      all: "Todos los eventos"
+      formats: "Formatos"
+      aria: "Tipos de evento"
+      collapse: "Contraer"
+      expand: "Expandir"
+      no_events: "No hay eventos"
+
+    sheet:
+      back: "← Volver a la lista"
+
+    list:
+      open_event: "Abrir"
+
+    errors:
+      unreachable: "No se pudo contactar con el servidor. Puede estar caído, o este sitio puede no tener permiso para consultarlo desde el navegador. Inténtalo de nuevo en un momento."
+      network: "Error de red"
+      server_unavailable: "El servidor no está disponible temporalmente (HTTP ${status}). No es un problema de tu conexión — inténtalo de nuevo en un minuto."
+      not_found: "No se encontró el archivo de datos (404). Es posible que el recurso se haya movido o eliminado."
+      client: "Error del cliente"
+      refresh: "Recarga la página e inténtalo de nuevo."
+      bad_events: "El servidor devolvió una respuesta inesperada para los eventos."
+      bad_locations: "El servidor devolvió una respuesta inesperada para los lugares."
+      timeout: "La solicitud tardó ${seconds} segundos y se canceló. Revisa tu conexión e inténtalo de nuevo."
+
+    toast:
+      link_copied: "¡Enlace copiado al portapapeles!"
+      copy_failed: "No se pudo copiar automáticamente. URL: "
+      share_failed: "No se pudo generar el enlace para compartir"
+      feedback_thanks: "¡Gracias por tus comentarios!"
+      feedback_failed: "No se pudieron enviar los comentarios"
+      network_error: "Error de red. Inténtalo de nuevo."
+
+    popup:
+      no_events: "No hay eventos en este lugar en el rango de fechas seleccionado."
+      events: "Eventos"
+      ongoing: "En curso"
+      info: "Info"

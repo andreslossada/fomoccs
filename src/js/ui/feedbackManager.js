@@ -234,10 +234,10 @@ const FeedbackManager = (() => {
                 close();
                 // Show success toast
                 if (typeof ToastNotifier !== 'undefined') {
-                    ToastNotifier.showToast('Thank you for your feedback!', 'success');
+                    ToastNotifier.showToast(Utils.label('toast.feedback_thanks', 'Thank you for your feedback!'), 'success');
                 }
             } else {
-                const errorMsg = data.error || 'Failed to submit feedback';
+                const errorMsg = data.error || Utils.label('toast.feedback_failed', 'Failed to submit feedback');
                 setStatus(errorMsg, 'error');
                 if (typeof ToastNotifier !== 'undefined') {
                     ToastNotifier.showToast(errorMsg, 'error');
@@ -245,7 +245,7 @@ const FeedbackManager = (() => {
             }
         } catch (error) {
             console.error('Feedback submission error:', error);
-            const errorMsg = 'Network error. Please try again.';
+            const errorMsg = Utils.label('toast.network_error', 'Network error. Please try again.');
             setStatus(errorMsg, 'error');
             if (typeof ToastNotifier !== 'undefined') {
                 ToastNotifier.showToast(errorMsg, 'error');

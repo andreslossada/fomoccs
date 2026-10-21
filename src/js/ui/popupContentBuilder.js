@@ -28,6 +28,16 @@ const PopupContentBuilder = (() => {
     // Section display order: Events first, Ongoing second, custom alphabetical
     const SECTION_ORDER = { 'Events': 0, 'Ongoing': 1 };
 
+    // The section ids are internal — they are sort keys, and a saved tab index
+    // has to keep matching across sessions. Only what the user reads is
+    // translated.
+    const SECTION_LABELS = {
+        'Events': () => Utils.label('popup.events', 'Events'),
+        'Ongoing': () => Utils.label('popup.ongoing', 'Ongoing'),
+        'Info': () => Utils.label('popup.info', 'Info'),
+    };
+    const sectionLabel = name => (SECTION_LABELS[name] ? SECTION_LABELS[name]() : name);
+
     const LINK_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
 
     const LINK_ICON_SVG_16 = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
@@ -631,7 +641,8 @@ const PopupContentBuilder = (() => {
 
         if (eventsAtLocation.length === 0 && !forceDisplayEventId) {
             const noEventsP = document.createElement('p');
-            noEventsP.textContent = "No events at this location in the selected date range.";
+            noEventsP.textContent = Utils.label('popup.no_events',
+            "No events at this location in the selected date range.");
             eventsListWrapper.appendChild(noEventsP);
             return eventsListWrapper;
         }
@@ -741,7 +752,7 @@ const PopupContentBuilder = (() => {
         const tabButtons = tabNames.map((name, i) => {
             const btn = document.createElement('button');
             btn.className = 'popup-tab' + (i === defaultTab ? ' active' : '');
-            btn.textContent = name;
+            btn.textContent = sectionLabel(name);
             tabBar.appendChild(btn);
             return btn;
         });

@@ -52,9 +52,10 @@ const FeedAdapter = (() => {
     function describeFetchFailure(fetchError) {
         const raw = fetchError?.message || 'Failed to fetch';
         if (/failed to fetch|networkerror/i.test(raw)) {
-            return 'Could not reach the server. It may be down, or this site may not be allowed to query it from the browser. Please try again shortly.';
+            return Utils.label('errors.unreachable',
+                'Could not reach the server. It may be down, or this site may not be allowed to query it from the browser. Please try again shortly.');
         }
-        return `Network error: ${raw}`;
+        return `${Utils.label('errors.network', 'Network error')}: ${raw}`;
     }
 
     /**
@@ -82,13 +83,16 @@ const FeedAdapter = (() => {
             if (response.status >= 500) {
                 // 503 specifically means a Cloud Run revision is cold or
                 // failing its start-up probe; both resolve on retry.
-                throw new Error(`The server is temporarily unavailable (HTTP ${response.status}). This is not a problem with your connection — please try again in a minute.`);
+                throw new Error(Utils.label('errors.server_unavailable',
+                    'The server is temporarily unavailable (HTTP ${status}). This is not a problem with your connection — please try again in a minute.')
+                    .replace('${status}', response.status));
             }
             if (response.status === 404) {
-                throw new Error('Data file not found (404). The requested resource may have been moved or deleted.');
+                throw new Error(Utils.label('errors.not_found',
+                    'Data file not found (404). The requested resource may have been moved or deleted.'));
             }
             if (response.status >= 400) {
-                throw new Error(`Client error (${response.status}). Please refresh the page and try again.`);
+                throw new Error(`${Utils.label('errors.client', 'Client error')} (${response.status}). ${Utils.label('errors.refresh', 'Please refresh the page and try again.')}`);
             }
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -225,10 +229,10 @@ const FeedAdapter = (() => {
         ]);
 
         if (!Array.isArray(rawEvents)) {
-            throw new Error('The server returned an unexpected response for events.');
+            throw new Error(Utils.label('errors.bad_events', 'The server returned an unexpected response for events.'));
         }
         if (!Array.isArray(rawLocations)) {
-            throw new Error('The server returned an unexpected response for locations.');
+            throw new Error(Utils.label('errors.bad_locations', 'The server returned an unexpected response for locations.'));
         }
 
         const events = [];

@@ -490,7 +490,7 @@ const Sheet = (() => {
         const back = document.createElement('button');
         back.type = 'button';
         back.className = 'sheet-detail-back';
-        back.textContent = '← Back to list';
+        back.textContent = Utils.label('sheet.back', '← Back to list');
         // closeDetail fires popupclose, whose handler owns the history push
         back.addEventListener('click', () => closeDetail());
         const body = document.createElement('div');

@@ -101,6 +101,7 @@ function cityPrelude(fe, isDev) {
         neighborhoodSelector: fe.neighborhood_selector || {},
         venueSelector: fe.venue_selector || {},
         filterRoots: fe.filter_roots || {},
+        labels: fe.labels || {},
         domain: fe.domain,
         swEnabled: !isDev && fe.sw_enabled !== false,
     };

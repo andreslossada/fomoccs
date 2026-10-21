@@ -284,7 +284,7 @@ const ListView = (() => {
             const card = PopupContentBuilder.createEventCard(event, { interactive: false });
             card.tabIndex = 0;
             card.setAttribute('role', 'button');
-            card.setAttribute('aria-label', `Open ${event.name}`);
+            card.setAttribute('aria-label', `${Utils.label('list.open_event', 'Open')} ${event.name}`);
             card.addEventListener('keydown', e => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
             });

@@ -18,6 +18,9 @@ const VenueTags = (() => {
 
 /** Shared hierarchical navigation, with independently scoped labels and resets. */
 function createTagSelector({ id, noun, searchLabel, includes }) {
+    // Copy comes from the city config so the interface can be translated
+    // without touching this module. The English arguments stay as fallbacks.
+    const L = key => Utils.label(`tag_selector.${key}`, '');
     let names = [], children = {}, roots = [], branches = new Map();
     let panel, button, onChange, counts = {}, search = '', lastState = '';
     const expanded = new Set(), searchCollapsed = new Set();
@@ -102,7 +105,8 @@ function createTagSelector({ id, noun, searchLabel, includes }) {
     }
     function label() {
         const entries = activeEntries();
-        if (!entries.length) return `All ${noun}`;
+        const all = L('all') || `All ${noun}`;
+        if (!entries.length) return all;
         if (entries.length > 1) return `${entries.length} ${noun}`;
         const [name, state] = entries[0];
         return state === 'forbidden' ? `Exclude ${displayName(name)}` : displayName(name);
@@ -129,12 +133,14 @@ function createTagSelector({ id, noun, searchLabel, includes }) {
         input.dataset.focusKey = focusKey;
         if (name) input.dataset.topic = name;
         else input.dataset.allTags = '';
-        row.append(input, document.createTextNode(name ? displayName(name) : `All ${noun}`));
+        row.append(input, document.createTextNode(name ? displayName(name) : (L('all') || `All ${noun}`)));
         const state = name && TagStateManager.getTagState(name);
         if (state === 'required' || state === 'forbidden') {
             const badge = document.createElement('span');
             badge.className = 'tag-selector-state';
-            badge.textContent = state === 'required' ? 'Required' : 'Excluded';
+            badge.textContent = state === 'required'
+                ? (L('required') || 'Required')
+                : (L('excluded') || 'Excluded');
             row.append(badge);
         }
         input.addEventListener('change', () => name ? setTagSelection(name, !active(name)) : clear());
@@ -168,7 +174,7 @@ function createTagSelector({ id, noun, searchLabel, includes }) {
             const selected = document.createElement('div');
             selected.className = 'tag-selector-active';
             selected.setAttribute('role', 'group');
-            selected.setAttribute('aria-label', `Active ${id} filters`);
+            selected.setAttribute('aria-label', `${L('active_filters') || 'Active'} ${id} filters`);
             entries.forEach(([name]) => selected.append(checkbox(name, `active:${name}`)));
             panel.append(selected);
         }
@@ -188,7 +194,7 @@ function createTagSelector({ id, noun, searchLabel, includes }) {
                 list.className = 'format-selector-children';
                 list.id = `${id}-group-${index++}`;
                 list.setAttribute('role', 'group');
-                list.setAttribute('aria-label', `${displayName(name)} tags`);
+                list.setAttribute('aria-label', `${displayName(name)} ${L('noun') || 'tags'}`);
                 const disclosure = document.createElement('button');
                 disclosure.type = 'button';
                 disclosure.className = 'format-selector-disclosure';
@@ -203,7 +209,7 @@ function createTagSelector({ id, noun, searchLabel, includes }) {
                     const open = search.trim() ? !searchCollapsed.has(name) : expanded.has(name);
                     list.hidden = !open;
                     disclosure.setAttribute('aria-expanded', String(open));
-                    disclosure.setAttribute('aria-label', `${open ? 'Collapse' : 'Expand'} ${displayName(name)}`);
+                    disclosure.setAttribute('aria-label', `${open ? (L('collapse') || 'Collapse') : (L('expand') || 'Expand')} ${displayName(name)}`);
                     // Build branches only when opened: the exported graph has thousands
                     // of nodes and multiple parents, so eager rendering duplicates work.
                     if (open && !list.childElementCount) descendants.forEach(child => list.append(node(child, nextPath)));
@@ -227,7 +233,9 @@ function createTagSelector({ id, noun, searchLabel, includes }) {
             if (!tree.childElementCount) {
                 const empty = document.createElement('p');
                 empty.className = 'selector-empty-message';
-                empty.textContent = search.trim() ? `No matching ${noun.toLowerCase()}` : 'No matching events';
+                empty.textContent = search.trim()
+                    ? (L('no_match') || `No matching ${noun.toLowerCase()}`)
+                    : (L('no_events') || 'No matching events');
                 tree.append(empty);
             }
             sync();
@@ -265,5 +273,9 @@ function createTagSelector({ id, noun, searchLabel, includes }) {
     return { init, configure, updateCounts, count, setSearch, visibleNames, groupState, setTagSelection, clear, label, refresh };
 }
 
-const TagSelector = createTagSelector({ id: 'tag', noun: 'Tags', searchLabel: 'Find a tag',
-    includes: name => !VenueTags.has(name) });
+const TagSelector = createTagSelector({
+    id: 'tag',
+    noun: Utils.label('tag_selector.noun', 'Tags'),
+    searchLabel: Utils.label('tag_selector.search', 'Find a tag'),
+    includes: name => !VenueTags.has(name),
+});

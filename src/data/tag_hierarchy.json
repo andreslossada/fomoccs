@@ -481,6 +481,7 @@
    "emoji": "🏛️",
    "aliases": [
     "CocinaPatrimonial",
+    "PatrimonioArtistico",
     "PatrimonioCultural",
     "RutaCultural"
    ]
@@ -524,6 +525,7 @@
    "emoji": "📚",
    "aliases": [
     "Certificacion",
+    "ClaseDeArte",
     "Clases",
     "CursosDeIdiomas",
     "Inscripciones",
@@ -532,7 +534,8 @@
     "TallerDeArte",
     "TallerDePintura",
     "Talleres",
-    "TalleresCreativos"
+    "TalleresCreativos",
+    "TalleresDeArte"
    ]
   },
   {
@@ -1062,6 +1065,15 @@
    "Formación"
   ]
  },
+ "format_categories": {
+  "Performance": "Espectáculos",
+  "Participatory": "Participativos",
+  "Outing": "Salidas",
+  "Social": "Social",
+  "Browsable": "Para explorar",
+  "Gathering": "Encuentros",
+  "Other": "Otros"
+ },
  "format_only_tags": [
   "Becas",
   "Catedra",
@@ -1161,6 +1173,7 @@
   "CineVenezuela": "Cine",
   "CinematecaNacional": "Proyección",
   "Ciudadania": "Identidad",
+  "ClaseDeArte": "Cursos",
   "ClaseMagistral": "Formación",
   "Clases": "Cursos",
   "ClasesDeArte": "Creatividad",
@@ -1376,6 +1389,7 @@
   "OrquestaSinfonica": "Clásica",
   "OrquestaSinfónica": "Clásica",
   "Patrimonio": "Patrimonio",
+  "PatrimonioArtistico": "Patrimonio",
   "PatrimonioCultural": "Patrimonio",
   "Peliculas": "Independiente",
   "Películas": "Independiente",
@@ -1430,6 +1444,7 @@
   "TallerDePintura": "Cursos",
   "Talleres": "Cursos",
   "TalleresCreativos": "Cursos",
+  "TalleresDeArte": "Cursos",
   "Teatro": "Teatro",
   "TeatroInfantil": "Infantil",
   "TeatroTeresaCarreño": "Teatro",

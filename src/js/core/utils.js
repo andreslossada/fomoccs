@@ -619,10 +619,30 @@ const Utils = (() => {
         return { selectedTags, requiredTags, forbiddenTags, selectedTagsSet, requiredTagsSet, forbiddenTagsSet };
     }
 
+    /**
+     * Reads a UI string from the city config.
+     *
+     * The strings live in config/<city>.yaml (frontend.labels) so a
+     * deployment can be translated without touching the code. The fallback is
+     * the English original, so a module still works when the config has no
+     * labels block at all.
+     *
+     * @param {string} path - Dot path, e.g. 'tag_selector.noun'
+     * @param {string} [fallback] - Used when the config has no such label
+     * @returns {string}
+     */
+    function label(path, fallback = '') {
+        const labels = globalThis.__CITY__?.labels;
+        if (!labels) return fallback;
+        const value = path.split('.').reduce((acc, key) => (acc == null ? undefined : acc[key]), labels);
+        return typeof value === 'string' ? value : fallback;
+    }
+
     return {
         escapeHtml,
         decodeHtml,
         formatAndSanitize,
+        label,
         getTagDisplayName,
         appendChipContent,
         partitionTagStates,

@@ -41,7 +41,9 @@ const DataManager = (() => {
 
             // Handle different types of fetch errors
             if (fetchError.name === 'AbortError') {
-                throw new Error(`Request timed out after ${timeout/1000} seconds. Please check your internet connection and try again.`);
+                throw new Error(Utils.label('errors.timeout',
+                    'Request timed out after ${seconds} seconds. Please check your internet connection and try again.')
+                    .replace('${seconds}', timeout / 1000));
             } else if (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('NetworkError')) {
                 throw new Error('Unable to connect to the server. Please check your internet connection and try again.');
             } else {
@@ -939,6 +941,9 @@ const DataManager = (() => {
             // category -> format names and feeds the selector menus; this one is
             // how an event's format is derived from its tags.
             formatTags: data.format_tags || {},
+            // experience family -> display label (the family ids stay
+            // English: formatColors.js keys its colour table on them).
+            formatCategories: data.format_categories || {},
             tagRedirects: data.tag_redirects || {},
             neighborhoodTags: new Set(['Neighborhood', 'venue:Neighborhood', ...(descendantsOf.Neighborhood || []), ...(descendantsOf['venue:Neighborhood'] || [])]),
             tagIconMap: { ...(data.icon_ids || {}) } };

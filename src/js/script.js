@@ -204,6 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
             this.state.tagSearchTerms = hierarchyMaps.tagSearchTerms;
             this.state.formats = hierarchyMaps.formats;
             this.state.formatTags = hierarchyMaps.formatTags;
+            this.state.formatCategories = hierarchyMaps.formatCategories;
             this.state.formatOnlyTags = hierarchyMaps.formatOnlyTags;
             this.state.neighborhoodTags = new Set(
                 [...hierarchyMaps.neighborhoodTags,
@@ -292,7 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
          */
         _setupUIComponents(urlParams) {
             FormatColors.configure(this.state.formats);
-            FormatSelector.configure(this.state.formats);
+            FormatSelector.configure(this.state.formats, this.state.formatCategories);
             // URL tags arrive in whatever spelling was shared. Canonicalize,
             // then split off the ones that are really formats or
             // neighborhoods so they can seed the format selector instead of
@@ -1355,16 +1356,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Copy to clipboard
                 navigator.clipboard.writeText(shareUrl).then(() => {
-                    ToastNotifier.showToast('Link copied to clipboard!', 'success', 3000);
+                    ToastNotifier.showToast(Utils.label('toast.link_copied', 'Link copied to clipboard!'), 'success', 3000);
                 }).catch(err => {
                     console.error('Failed to copy to clipboard:', err);
                     // Fallback: show the URL in a toast for manual copying
-                    ToastNotifier.showToast('Could not copy automatically. URL: ' + shareUrl, 'info', 5000);
+                    ToastNotifier.showToast(Utils.label('toast.copy_failed', 'Could not copy automatically. URL: ') + shareUrl, 'info', 5000);
                 });
 
             } catch (error) {
                 console.error('Error generating share URL:', error);
-                ToastNotifier.showToast('Failed to generate share link', 'error', 3000);
+                ToastNotifier.showToast(Utils.label('toast.share_failed', 'Failed to generate share link'), 'error', 3000);
             }
         }
     };
