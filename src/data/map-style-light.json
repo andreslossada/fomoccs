@@ -44,7 +44,7 @@
           {"type":"Feature","geometry":{"type":"Point","coordinates":[-66.9000,10.5120]},"properties":{"name":"San Bernardino"}},
           {"type":"Feature","geometry":{"type":"Point","coordinates":[-66.8500,10.4520]},"properties":{"name":"Santa Fe"}},
           {"type":"Feature","geometry":{"type":"Point","coordinates":[-66.8850,10.4880]},"properties":{"name":"Santa Monica"}},
-          {"type":"Feature","geometry":{"type":"Point","coordinates":[-66.8350,10.5080]},"properties":{"name":"Sebucan"}},
+          {"type":"Feature","geometry":{"type":"Point","coordinates":[-66.8350,10.5080]},"properties":{"name":"Sebucan"}}
         ]
       }
     }
