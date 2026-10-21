@@ -318,7 +318,8 @@ class TestSourceUrls:
         )
         assert resp.status_code == 201
         body = resp.json()
-        assert body["url"] == "https://new-url.com"
+        # The schema normalizes a bare host to a trailing slash.
+        assert body["url"] == "https://new-url.com/"
         assert "id" in body
 
     @pytest.mark.asyncio

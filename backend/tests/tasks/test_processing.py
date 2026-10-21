@@ -193,7 +193,13 @@ class TestProcessCrawlJobIsolation:
     async def test_one_source_fails_other_succeeds(
         self, db_session: AsyncSession
     ) -> None:
-        """Per-source isolation: failure in one result leaves other processed."""
+        """Per-source isolation: failure in one result leaves other processed.
+
+        The isolation lives in the prep step. The merge itself is a single
+        pass over the whole job, so a merge failure fails the job rather than
+        one source — the prep is where one bad source must not take the
+        others down with it.
+        """
         job = await _make_job(db_session)
         source_a = await _make_source(db_session, "Source A")
         source_b = await _make_source(db_session, "Source B")
@@ -213,21 +219,23 @@ class TestProcessCrawlJobIsolation:
         cr_b_id = cr_b.id
 
         stub = SessionFactoryStub(db_session)
-        call_count = 0
 
-        async def fake_merge(session: Any, *, crawl_job_id: int) -> None:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise RuntimeError("simulated merge failure")
+        async def fake_resolve(
+            session: Any,
+            *,
+            location_name: str,
+            sublocation: str | None = None,
+            source_site_name: str | None = None,
+            event_name: str | None = None,
+        ) -> Any:
+            if location_name == "Venue A":
+                raise RuntimeError("simulated prep failure")
+            return None
 
         with (
             patch("api.tasks.processing._make_session", return_value=stub),
             patch("api.tasks.geocoding.geocode_location") as mock_geo,
-            patch(
-                "api.tasks.processing.merge_extracted_events",
-                side_effect=fake_merge,
-            ),
+            patch("api.tasks.processing.resolve_location", side_effect=fake_resolve),
         ):
             mock_geo.delay = MagicMock()
             await _process_crawl_job(job.id)
@@ -246,7 +254,7 @@ class TestProcessCrawlJobIsolation:
             cr_a_fresh if cr_a_fresh.status == CrawlResultStatus.failed else cr_b_fresh
         )
         assert failed.error_message is not None
-        assert "simulated merge failure" in failed.error_message
+        assert "simulated prep failure" in failed.error_message
 
 
 class TestProcessCrawlJobEmptyJob:

@@ -2,15 +2,20 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
+from pydantic import AnyHttpUrl, TypeAdapter
 
-def http_url(raw: str) -> str:
-    """Return a URL string for schema constructors.
+_URL_ADAPTER: TypeAdapter[AnyHttpUrl] = TypeAdapter(AnyHttpUrl)
 
-    The schemas keep the URL exactly as it was given (they validate it but
-    do not rewrite it), so this is the identity on purpose: it exists as the
-    one place to change if that ever stops being true.
+
+def http_url(raw: str) -> AnyHttpUrl:
+    """Build an ``AnyHttpUrl`` from a plain string for schema constructors.
+
+    Pydantic v2 does accept ``str`` at runtime, but the constructor is typed
+    against ``AnyHttpUrl``, so passing a bare string fails mypy strict.
+    Going through the adapter keeps the call sites readable and gives us the
+    same validation/normalisation the model would apply.
     """
-    return raw
+    return _URL_ADAPTER.validate_python(raw)
 
 
 def make_timestamp() -> datetime:

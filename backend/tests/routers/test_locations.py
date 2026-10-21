@@ -336,7 +336,8 @@ class TestCreateLocation:
         # Assert
         assert resp.status_code == 201
         body = resp.json()
-        assert body["website_url"] == "https://example.com"
+        # The schema normalizes a bare host to a trailing slash.
+        assert body["website_url"] == "https://example.com/"
         assert body["type"] == "area"
 
     @pytest.mark.asyncio

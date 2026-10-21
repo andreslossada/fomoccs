@@ -227,7 +227,9 @@ async def test_resolve_location_dedup_misses_when_sublocation_differs(
     match exists either, so a new Location is created.
     """
     existing = Location(
-        name="Centro Cultural Chacao", address="Sala 1", emoji="\U0001f3ad"
+        name="Sala de Exposiciones Bartolomeo de la Torre",
+        address="Sala 1",
+        emoji="\U0001f3ad",
     )
     db_session.add(existing)
     await db_session.flush()
@@ -235,7 +237,7 @@ async def test_resolve_location_dedup_misses_when_sublocation_differs(
     with patch("api.tasks.geocoding.geocode_location", new=MagicMock()) as mock_task:
         result = await resolve_location(
             db_session,
-            location_name="Centro Cultural Chacao",
+            location_name="Sala de Exposiciones Bartolomeo de la Torre",
             sublocation="Sala 7",
             source_site_name="site",
             event_name="Some Show",
